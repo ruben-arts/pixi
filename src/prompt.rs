@@ -1,5 +1,4 @@
 /// Set default pixi prompt for the bash shell
-#[cfg(target_family = "unix")]
 pub fn get_bash_prompt(env_name: &str) -> String {
     format!("export PS1=\"({}) $PS1\"", env_name)
 }

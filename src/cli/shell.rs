@@ -3,10 +3,11 @@ use clap::Parser;
 use miette::IntoDiagnostic;
 use rattler_conda_types::Platform;
 use rattler_shell::activation::PathModificationBehavior;
-use rattler_shell::shell::{PowerShell, Shell, ShellEnum, ShellScript};
+use rattler_shell::shell::{PowerShell, Bash, Shell, ShellEnum, ShellScript};
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::Stdio;
 
 #[cfg(target_family = "unix")]
 use crate::unix::PtySession;
@@ -66,6 +67,59 @@ fn start_powershell(
     command.arg(&temp_path);
 
     let mut process = command.spawn().into_diagnostic()?;
+    Ok(process.wait().into_diagnostic()?.code())
+}
+
+fn start_bash(
+    bash: Bash,
+    args: Vec<&str>,
+    env: &HashMap<String, String>,
+    prompt: String,
+) -> miette::Result<Option<i32>> {
+    // create a tempfile for activation
+    let mut temp_file = tempfile::Builder::new()
+        .prefix("pixi_env_")
+        .suffix(&format!(".{}", bash.extension()))
+        .rand_bytes(3)
+        .tempfile()
+        .into_diagnostic()?;
+
+    let mut shell_script = ShellScript::new(bash.clone(), Platform::current());
+    for (key, value) in env {
+        shell_script.set_env_var(key, value);
+    }
+
+    temp_file
+        .write_all(shell_script.contents.as_bytes())
+        .into_diagnostic()?;
+
+    // Write custom prompt to the env file
+    temp_file.write(prompt.as_bytes()).into_diagnostic()?;
+
+    let mut command = std::process::Command::new(bash.executable());
+    command.args(&args);
+
+    // Space added before `source` to automatically ignore it in history.
+    let mut source_command = " ".to_string();
+    bash
+        .run_script(&mut source_command, temp_file.path())
+        .into_diagnostic()?;
+
+    // Remove automatically added `\n`, if for some reason this fails, just ignore.
+    let source_command = source_command
+        .strip_suffix('\n')
+        .unwrap_or(source_command.as_str());
+
+    // Start process and send env activation to the shell.
+    let mut command = std::process::Command::new(bash.executable());
+    command.args(args);
+
+    let mut process = command
+        // .stdin(Stdio::piped())
+        // .stdout(Stdio::piped())
+        .spawn()
+        .into_diagnostic()?;
+
     Ok(process.wait().into_diagnostic()?.code())
 }
 
@@ -240,7 +294,7 @@ pub async fn execute(args: Args) -> miette::Result<()> {
         .unwrap_or_default();
 
     #[cfg(target_family = "windows")]
-    let res = match interactive_shell {
+        let res = match interactive_shell {
         ShellEnum::NuShell(nushell) => {
             start_nu_shell(nushell, &env, prompt::get_nu_prompt(project.name())).await
         }
@@ -250,13 +304,16 @@ pub async fn execute(args: Args) -> miette::Result<()> {
         ShellEnum::CmdExe(cmdexe) => {
             start_cmdexe(cmdexe, &env, prompt::get_cmd_prompt(project.name()))
         }
+        ShellEnum::Bash(bash) => {
+            start_bash(bash, vec!["-l", "-i"], &env, prompt::get_bash_prompt(project.name()))
+        }
         _ => {
             miette::bail!("Unsupported shell: {:?}", interactive_shell);
         }
     };
 
     #[cfg(target_family = "unix")]
-    let res = match interactive_shell {
+        let res = match interactive_shell {
         ShellEnum::NuShell(nushell) => {
             start_nu_shell(nushell, &env, prompt::get_nu_prompt(project.name())).await
         }
@@ -270,7 +327,7 @@ pub async fn execute(args: Args) -> miette::Result<()> {
                 &env,
                 prompt::get_bash_prompt(project.name()),
             )
-            .await
+                .await
         }
         ShellEnum::Zsh(zsh) => {
             start_unix_shell(
@@ -279,7 +336,7 @@ pub async fn execute(args: Args) -> miette::Result<()> {
                 &env,
                 prompt::get_zsh_prompt(project.name()),
             )
-            .await
+                .await
         }
         ShellEnum::Fish(fish) => {
             start_unix_shell(fish, vec![], &env, prompt::get_fish_prompt(project.name())).await
