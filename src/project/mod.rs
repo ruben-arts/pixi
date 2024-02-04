@@ -145,25 +145,39 @@ impl Project {
     fn load(manifest_path: &Path) -> miette::Result<Self> {
         // Determine the parent directory of the manifest file
         let full_path = dunce::canonicalize(manifest_path).into_diagnostic()?;
-        if full_path.file_name().and_then(OsStr::to_str) != Some(PROJECT_MANIFEST) {
-            miette::bail!("the manifest-path must point to a {PROJECT_MANIFEST} file");
-        }
-
         let root = full_path
             .parent()
             .ok_or_else(|| miette::miette!("can not find parent of {}", manifest_path.display()))?;
 
-        // Load the TOML document
-        let manifest = fs::read_to_string(manifest_path)
-            .into_diagnostic()
-            .and_then(|content| Manifest::from_str(root, content))
-            .wrap_err_with(|| {
-                format!(
-                    "failed to parse {} from {}",
-                    consts::PROJECT_MANIFEST,
-                    root.display()
-                )
-            });
+        let manifest = match full_path.file_name().and_then(OsStr::to_str) {
+            Some(PROJECT_MANIFEST) => {
+                // Load the TOML document
+                fs::read_to_string(manifest_path)
+                    .into_diagnostic()
+                    .and_then(|content| Manifest::from_str(root, content))
+                    .wrap_err_with(|| {
+                        format!(
+                            "failed to parse {} from {}",
+                            consts::PROJECT_MANIFEST,
+                            root.display()
+                        )
+                    })
+            }
+            Some("pyproject.toml") => {
+                // Load the TOML document
+                fs::read_to_string(manifest_path)
+                    .into_diagnostic()
+                    .and_then(|content| Manifest::from_pyproject_str(root, content))
+                    .wrap_err_with(|| {
+                        format!(
+                            "failed to parse {} from {}",
+                            consts::PROJECT_MANIFEST,
+                            root.display()
+                        )
+                    })
+            }
+            _ => miette::bail!("the manifest-path must point to a {PROJECT_MANIFEST} file"),
+        };
 
         Ok(Self {
             root: root.to_owned(),

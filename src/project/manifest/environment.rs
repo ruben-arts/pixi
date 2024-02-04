@@ -111,13 +111,14 @@ pub struct Environment {
 
 /// Helper struct to deserialize the environment from TOML.
 /// The environment description can only hold these values.
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub(super) struct TomlEnvironment {
     pub features: PixiSpanned<Vec<String>>,
     pub solve_group: Option<String>,
 }
 
+#[derive(Clone)]
 pub(super) enum TomlEnvironmentMapOrSeq {
     Map(TomlEnvironment),
     Seq(Vec<String>),

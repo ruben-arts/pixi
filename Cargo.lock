@@ -2532,6 +2532,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pep440_rs"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0c29f9c43de378b4e4e0cd7dbcce0e5cfb80443de8c05620368b2948bc936a1"
+dependencies = [
+ "once_cell",
+ "regex",
+ "serde",
+ "unicode-width",
+]
+
+[[package]]
 name = "pep508_rs"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2539,7 +2551,7 @@ checksum = "e4516b53d9ea6112ebb38b4af08d5707d30b994fb7f98ff133c5dcf7ed8fa854"
 dependencies = [
  "anyhow",
  "once_cell",
- "pep440_rs",
+ "pep440_rs 0.3.12",
  "regex",
  "serde",
  "thiserror",
@@ -2683,8 +2695,9 @@ dependencies = [
  "minijinja",
  "nix 0.27.1",
  "once_cell",
- "pep440_rs",
+ "pep440_rs 0.3.12",
  "pep508_rs",
+ "pyproject-toml",
  "rattler",
  "rattler_conda_types",
  "rattler_digest 0.17.0",
@@ -2841,12 +2854,12 @@ dependencies = [
 
 [[package]]
 name = "pyproject-toml"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46d4a5e69187f23a29f8aa0ea57491d104ba541bc55f76552c2a74962aa20e04"
+checksum = "ef61ae096a2f8c8b49eca360679dbc25f57c99145f6634b6bc18fedb1f9c6c30"
 dependencies = [
  "indexmap 2.2.2",
- "pep440_rs",
+ "pep440_rs 0.4.0",
  "pep508_rs",
  "serde",
  "toml",
@@ -3047,7 +3060,7 @@ dependencies = [
  "parking_lot",
  "pathdiff",
  "peg",
- "pep440_rs",
+ "pep440_rs 0.3.12",
  "pep508_rs",
  "pin-project-lite",
  "pyproject-toml",
@@ -3081,7 +3094,7 @@ dependencies = [
  "fxhash",
  "indexmap 2.2.2",
  "itertools 0.12.1",
- "pep440_rs",
+ "pep440_rs 0.3.12",
  "pep508_rs",
  "purl",
  "rattler_conda_types",

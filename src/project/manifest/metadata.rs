@@ -7,7 +7,7 @@ use url::Url;
 
 /// Describes the contents of the `[package]` section of the project manifest.
 #[serde_as]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct ProjectMetadata {
     /// The name of the project

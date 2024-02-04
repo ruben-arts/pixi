@@ -4,6 +4,7 @@ mod environment;
 mod error;
 mod feature;
 mod metadata;
+mod pyproject_toml;
 mod python;
 mod system_requirements;
 mod target;
@@ -11,6 +12,7 @@ mod validation;
 
 use crate::project::manifest::channel::PrioritizedChannel;
 use crate::project::manifest::environment::TomlEnvironmentMapOrSeq;
+use crate::project::manifest::pyproject_toml::PyProjectToml;
 use crate::{consts, project::SpecType, task::Task, utils::spanned::PixiSpanned};
 use ::serde::{Deserialize, Deserializer};
 pub use activation::Activation;
@@ -120,6 +122,54 @@ impl Manifest {
             contents,
             document,
             parsed: manifest,
+        })
+    }
+    /// Create a new manifest from a string
+    pub fn from_pyproject_str(root: &Path, contents: impl Into<String>) -> miette::Result<Self> {
+        let contents = contents.into();
+        let (manifest, document) = match PyProjectToml::from_toml_str(&contents)
+            .and_then(|manifest| contents.parse::<Document>().map(|doc| (manifest, doc)))
+        {
+            Ok(result) => result,
+            Err(e) => {
+                if let Some(span) = e.span() {
+                    return Err(miette::miette!(
+                        labels = vec![LabeledSpan::at(span, e.message())],
+                        "failed to parse project manifest"
+                    )
+                    .with_source_code(NamedSource::new(consts::PROJECT_MANIFEST, contents)));
+                } else {
+                    return Err(e).into_diagnostic();
+                }
+            }
+        };
+
+        // Validate the contents of the manifest
+        // manifest.validate(
+        //     NamedSource::new(consts::PROJECT_MANIFEST, contents.to_owned()),
+        //     root,
+        // )?;
+
+        // Notify the user that pypi-dependencies are still experimental
+        // if manifest
+        //     .features
+        //     .values()
+        //     .flat_map(|f| f.targets.targets())
+        //     .any(|f| f.pypi_dependencies.is_some())
+        // {
+        //     match std::env::var("PIXI_BETA_WARNING_OFF") {
+        //         Ok(var) if var == *"true" => {}
+        //         _ => {
+        //             tracing::warn!("BETA feature `[pypi-dependencies]` enabled!\n\nPlease report any and all issues here:\n\n\thttps://github.com/prefix-dev/pixi.\n\nTurn this warning off by setting the environment variable `PIXI_BETA_WARNING_OFF` to `true`.\n");
+        //         }
+        //     }
+        // }
+
+        Ok(Self {
+            path: root.join(consts::PROJECT_MANIFEST),
+            contents,
+            document,
+            parsed: ProjectManifest::from_pyproject_toml(manifest)?,
         })
     }
 
