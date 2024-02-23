@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1](https://github.com/ruben-arts/pixi/compare/v0.14.0...v0.14.1) - 2024-02-23
+
+### Added
+- skip micromamba style selector lines and warn about them ([#830](https://github.com/ruben-arts/pixi/pull/830))
+- add import yml flag ([#792](https://github.com/ruben-arts/pixi/pull/792))
+- check duplicate dependencies ([#717](https://github.com/ruben-arts/pixi/pull/717))
+- *(ci)* check conventional PR title ([#820](https://github.com/ruben-arts/pixi/pull/820))
+
+### Fixed
+- update token to also run normal CI on releas pr
+- check duplicates while adding dependencies ([#829](https://github.com/ruben-arts/pixi/pull/829))
+- logic PIXI_NO_PATH_UPDATE variable ([#822](https://github.com/ruben-arts/pixi/pull/822))
+
+### Other
+- add release-plz
+- add `mike` to the documentation and update looks ([#809](https://github.com/ruben-arts/pixi/pull/809))
+- add instructions for installing on Alpine Linux ([#828](https://github.com/ruben-arts/pixi/pull/828))
+- more error reporting in self-update ([#823](https://github.com/ruben-arts/pixi/pull/823))
+
 ## [0.14.0] - 2024-02-15
 
 ### ✨ Highlights
