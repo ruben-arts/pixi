@@ -318,6 +318,7 @@ fn version_or_url_to_nameless_matchspec(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::{path::Path, str::FromStr};
 
     use insta::assert_snapshot;
@@ -326,6 +327,7 @@ mod tests {
 
     use crate::{
         manifest::Manifest, pypi::PyPiPackageName, DependencyOverwriteBehavior, FeatureName,
+        PyPiRequirement,
     };
 
     const PYPROJECT_FULL: &str = r#"
@@ -589,5 +591,45 @@ mod tests {
         cmp(">=3.12", ">=3.12");
         cmp(">=3.10,<3.12", ">=3.10,<3.12");
         cmp("~=3.12", "~=3.12");
+    }
+
+    #[test]
+    fn test_pixi_and_pyproject_pypi_dependency() {
+        let manifest_raw = r#"
+            [project]
+            name = "flask-hello-world-pyproject"
+            version = "0.1.0"
+            requires-python = ">=3.11"
+            dependencies = ["flask==2.*"]
+
+            [tool.pixi.project]
+            channels = ["conda-forge"]
+            platforms = ["linux-64"]
+
+            [tool.pixi.pypi-dependencies]
+            flask = { path = ".", editable = true }
+            "#;
+        let mut manifest = Manifest::from_str(Path::new("pyproject.toml"), manifest_raw).unwrap();
+
+        // Remove flask from pyproject
+        let name = PyPiPackageName::from_str("flask").unwrap();
+
+        assert_eq!(
+            manifest
+                .default_feature_mut()
+                .targets
+                .for_opt_target(None)
+                .unwrap()
+                .pypi_dependencies
+                .as_ref()
+                .unwrap()
+                .get(&name)
+                .unwrap(),
+            &PyPiRequirement::Path {
+                path: PathBuf::from("."),
+                editable: Some(true),
+                extras: vec![]
+            }
+        );
     }
 }
