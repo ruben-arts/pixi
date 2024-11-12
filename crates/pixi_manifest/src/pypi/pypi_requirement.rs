@@ -1,8 +1,9 @@
-use super::{pypi_requirement_types::GitRevParseError, GitRev, VersionOrStar};
+use super::{pypi_requirement_types::GitRevParseError, GitRev, PyPiPackageName, VersionOrStar};
 use crate::utils::extract_directory_from_url;
 use crate::PyPiRequirement::RawVersion;
 use pep440_rs::VersionSpecifiers;
 use pep508_rs::ExtraName;
+use rattler_conda_types::MatchSpec;
 use serde::de::Error;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;

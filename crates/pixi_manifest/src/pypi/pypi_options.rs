@@ -49,6 +49,12 @@ pub struct PypiOptions {
     pub no_build_isolation: Option<Vec<String>>,
     /// The strategy to use when resolving against multiple index URLs.
     pub index_strategy: Option<IndexStrategy>,
+    /// Try to install all pypi packages as conda packages
+    pub try_as_conda: Option<bool>,
+    /// Install pypi packages as conda packages and error if not possible
+    pub force_as_conda: Option<Vec<String>>,
+    /// Exclude packages from being installed as conda packages
+    pub exclude_as_conda: Option<Vec<String>>,
 }
 
 /// Clones and deduplicates two iterators of values
@@ -71,6 +77,9 @@ impl PypiOptions {
         flat_indexes: Option<Vec<FindLinksUrlOrPath>>,
         no_build_isolation: Option<Vec<String>>,
         index_strategy: Option<IndexStrategy>,
+        try_as_conda: Option<bool>,
+        force_as_conda: Option<Vec<String>>,
+        exclude_as_conda: Option<Vec<String>>,
     ) -> Self {
         Self {
             index_url: index,
@@ -78,6 +87,9 @@ impl PypiOptions {
             find_links: flat_indexes,
             no_build_isolation,
             index_strategy,
+            try_as_conda,
+            force_as_conda,
+            exclude_as_conda,
         }
     }
 
@@ -174,12 +186,42 @@ impl PypiOptions {
             })
             .or_else(|| other.no_build_isolation.clone());
 
+        // Merge all the try as conda packages
+        let try_as_conda = self.try_as_conda.or(other.try_as_conda);
+
+        // Merge all the force as conda packages
+        let force_as_conda = self
+            .force_as_conda
+            .as_ref()
+            .map(|force_as_conda| {
+                clone_and_deduplicate(
+                    force_as_conda.iter(),
+                    other.force_as_conda.clone().unwrap_or_default().iter(),
+                )
+            })
+            .or_else(|| other.force_as_conda.clone());
+
+        // Merge all the exclude as conda packages
+        let exclude_as_conda = self
+            .exclude_as_conda
+            .as_ref()
+            .map(|exclude_as_conda| {
+                clone_and_deduplicate(
+                    exclude_as_conda.iter(),
+                    other.exclude_as_conda.clone().unwrap_or_default().iter(),
+                )
+            })
+            .or_else(|| other.exclude_as_conda.clone());
+
         Ok(PypiOptions {
             index_url: index,
             extra_index_urls: extra_indexes,
             find_links: flat_indexes,
             no_build_isolation,
             index_strategy,
+            try_as_conda,
+            force_as_conda,
+            exclude_as_conda,
         })
     }
 }
@@ -249,6 +291,9 @@ mod tests {
                 ]),
                 no_build_isolation: Some(vec!["pkg1".to_string(), "pkg2".to_string()]),
                 index_strategy: None,
+                try_as_conda: None,
+                force_as_conda: None,
+                exclude_as_conda: None,
             },
         );
     }
@@ -265,6 +310,9 @@ mod tests {
             ]),
             no_build_isolation: Some(vec!["foo".to_string(), "bar".to_string()]),
             index_strategy: None,
+            try_as_conda: None,
+            force_as_conda: None,
+            exclude_as_conda: None,
         };
 
         // Create the second set of options
@@ -277,6 +325,9 @@ mod tests {
             ]),
             no_build_isolation: Some(vec!["foo".to_string()]),
             index_strategy: None,
+            try_as_conda: Some(true),
+            force_as_conda: None,
+            exclude_as_conda: None,
         };
 
         // Merge the two options
@@ -294,6 +345,9 @@ mod tests {
             find_links: None,
             no_build_isolation: None,
             index_strategy: None,
+            try_as_conda: None,
+            force_as_conda: None,
+            exclude_as_conda: None,
         };
 
         // Create the second set of options
@@ -303,6 +357,9 @@ mod tests {
             find_links: None,
             no_build_isolation: None,
             index_strategy: None,
+            try_as_conda: None,
+            force_as_conda: None,
+            exclude_as_conda: None,
         };
 
         // Merge the two options
@@ -320,6 +377,9 @@ mod tests {
             find_links: None,
             no_build_isolation: None,
             index_strategy: Some(IndexStrategy::FirstIndex),
+            try_as_conda: None,
+            force_as_conda: None,
+            exclude_as_conda: None,
         };
 
         // Create the second set of options
@@ -329,6 +389,9 @@ mod tests {
             find_links: None,
             no_build_isolation: None,
             index_strategy: Some(IndexStrategy::UnsafeBestMatch),
+            try_as_conda: None,
+            force_as_conda: None,
+            exclude_as_conda: None,
         };
 
         // Merge the two options

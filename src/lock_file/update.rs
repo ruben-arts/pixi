@@ -1,45 +1,3 @@
-use barrier_cell::BarrierCell;
-use fancy_display::FancyDisplay;
-use futures::{future::Either, stream::FuturesUnordered, FutureExt, StreamExt, TryFutureExt};
-use indexmap::{IndexMap, IndexSet};
-use indicatif::{HumanBytes, ProgressBar, ProgressState};
-use itertools::Itertools;
-use miette::{Diagnostic, IntoDiagnostic, LabeledSpan, MietteDiagnostic, WrapErr};
-use parking_lot::Mutex;
-use pixi_consts::consts;
-use pixi_manifest::{EnvironmentName, FeaturesExt, HasFeaturesIter};
-use pixi_progress::global_multi_progress;
-use pixi_uv_conversions::{
-    to_extra_name, to_marker_environment, to_normalize, to_uv_extra_name, to_uv_normalize,
-    ConversionError,
-};
-use pypi_mapping::{self, Reporter};
-use pypi_modifiers::{pypi_marker_env::determine_marker_environment, pypi_tags::is_python_record};
-use rattler::package_cache::PackageCache;
-use rattler_conda_types::{Arch, Channel, MatchSpec, Platform, RepoDataRecord};
-use rattler_lock::{LockFile, PypiIndexes, PypiPackageData, PypiPackageEnvironmentData};
-use rattler_repodata_gateway::{Gateway, RepoData};
-use rattler_solve::ChannelPriority;
-use std::cmp::PartialEq;
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet, VecDeque},
-    fmt::Write,
-    future::{ready, Future},
-    iter,
-    path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::{Duration, Instant},
-};
-use thiserror::Error;
-use tokio::sync::Semaphore;
-use tracing::Instrument;
-use url::Url;
-use uv_normalize::ExtraName;
-
 use crate::environment::{read_environment_file, LockedEnvironmentHash};
 use crate::repodata::Repodata;
 use crate::{
@@ -60,6 +18,54 @@ use crate::{
     },
     Project,
 };
+use barrier_cell::BarrierCell;
+use fancy_display::FancyDisplay;
+use futures::{future::Either, stream::FuturesUnordered, FutureExt, StreamExt, TryFutureExt};
+use indexmap::{IndexMap, IndexSet};
+use indicatif::{HumanBytes, ProgressBar, ProgressState};
+use itertools::Itertools;
+use miette::{Diagnostic, IntoDiagnostic, LabeledSpan, MietteDiagnostic, WrapErr};
+use parking_lot::Mutex;
+use pixi_consts::consts;
+use pixi_manifest::pypi::{PyPiPackageName, VersionOrStar};
+use pixi_manifest::{EnvironmentName, FeaturesExt, HasFeaturesIter, PyPiRequirement};
+use pixi_progress::global_multi_progress;
+use pixi_uv_conversions::{
+    to_extra_name, to_marker_environment, to_normalize, to_uv_extra_name, to_uv_normalize,
+    ConversionError,
+};
+use pypi_mapping::{self, Reporter};
+use pypi_modifiers::{pypi_marker_env::determine_marker_environment, pypi_tags::is_python_record};
+use rattler::package_cache::PackageCache;
+use rattler_conda_types::version_spec::ParseVersionSpecError;
+use rattler_conda_types::{
+    Arch, Channel, MatchSpec, NamelessMatchSpec, ParseStrictness, Platform, RepoDataRecord,
+    VersionSpec,
+};
+use rattler_lock::{LockFile, PypiIndexes, PypiPackageData, PypiPackageEnvironmentData};
+use rattler_repodata_gateway::{Gateway, RepoData};
+use rattler_solve::ChannelPriority;
+use std::cmp::PartialEq;
+use std::str::FromStr;
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet, VecDeque},
+    fmt::Write,
+    future::{ready, Future},
+    iter,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
+use thiserror::Error;
+use tokio::sync::Semaphore;
+use tokio::time::sleep;
+use tracing::Instrument;
+use url::Url;
+use uv_normalize::ExtraName;
 
 impl Project {
     /// Ensures that the lock-file is up-to-date with the project information.
@@ -211,9 +217,17 @@ impl<'p> LockFileDerivedData<'p> {
         }
 
         tracing::info!("Updating prefix");
+
         // Get the prefix with the conda packages installed.
         let platform = environment.best_platform();
         let (prefix, python_status) = self.conda_prefix(environment).await?;
+
+        // No `uv` support for WASM right now
+        if platform.arch() == Some(Arch::Wasm32) {
+            return Ok(prefix);
+        }
+
+        // Get the prefix with the pypi packages installed.
         let repodata_records = self
             .repodata_records(environment, platform)
             .into_diagnostic()?
@@ -222,11 +236,6 @@ impl<'p> LockFileDerivedData<'p> {
             .pypi_records(environment, platform)
             .into_diagnostic()?
             .unwrap_or_default();
-
-        // No `uv` support for WASM right now
-        if platform.arch() == Some(Arch::Wasm32) {
-            return Ok(prefix);
-        }
 
         let uv_context = match &self.uv_context {
             None => {
@@ -1559,6 +1568,59 @@ enum TaskResult {
     ),
 }
 
+/// The type of parse error that occurred when parsing match spec.
+#[derive(Debug, Clone, Error)]
+pub enum ConvertPyPiRequirementToMatchSpecError {
+    #[error("{0} can't be understood as a conda valid requirement")]
+    UnsupportedRequirement(String),
+    #[error("invalid version spec: {0}")]
+    InvalidVersionSpec(#[from] ParseVersionSpecError),
+}
+
+fn matchspec_from_pypi(
+    name: &PyPiPackageName,
+    req: Option<&PyPiRequirement>,
+) -> Result<MatchSpec, ConvertPyPiRequirementToMatchSpecError> {
+    let version_spec = if let Some(req) = req {
+        let version_or_star = match req {
+            // TODO: Don't use the string thing, please please don't
+            PyPiRequirement::Version { version, .. } => version,
+            PyPiRequirement::RawVersion(version) => version,
+            _ => {
+                return Err(
+                    ConvertPyPiRequirementToMatchSpecError::UnsupportedRequirement(req.to_string()),
+                )
+            }
+        };
+
+        let version_spec = match version_or_star {
+            VersionOrStar::Version(version) => {
+                VersionSpec::from_str(version.to_string().as_str(), ParseStrictness::Lenient)?
+            }
+            VersionOrStar::Star => VersionSpec::Any,
+        };
+        Some(version_spec)
+    } else {
+        None
+    };
+
+    let name = rattler_conda_types::PackageName::from_str(name.as_source()).ok();
+
+    Ok(MatchSpec {
+        name,
+        version: version_spec,
+        build: None,
+        build_number: None,
+        file_name: None,
+        channel: None,
+        subdir: None,
+        namespace: None,
+        md5: None,
+        sha256: None,
+        url: None,
+    })
+}
+
 /// A task that solves the conda dependencies for a given environment.
 async fn spawn_solve_conda_environment_task(
     group: GroupedEnvironment<'_>,
@@ -1584,11 +1646,16 @@ async fn spawn_solve_conda_environment_task(
     // Whether there are pypi dependencies, and we should fetch purls.
     let has_pypi_dependencies = group.has_pypi_dependencies();
 
+    // Get pypi packages
+    let pypi_packages = group.pypi_dependencies(Some(platform));
+
     // Whether we should use custom mapping location
     let pypi_name_mapping_location = group.project().pypi_name_mapping_source()?.clone();
 
     // Get the channel configuration
     let channel_config = group.project().channel_config();
+
+    println!("BLAAAAAH");
 
     tokio::spawn(
         async move {
@@ -1606,8 +1673,36 @@ async fn spawn_solve_conda_environment_task(
 
             let start = Instant::now();
 
+            let pypi_match_specs: Vec<MatchSpec> = Vec::new();
+
+            if has_pypi_dependencies {
+                // A map of the requested pypi package to their conda package equivalent
+                let mut pypi_conda_packages: HashMap<
+                    String,
+                    (PyPiPackageName, IndexSet<PyPiRequirement>),
+                > = HashMap::new();
+
+                // Fetching name mapping
+                for pypi_package in pypi_packages {
+                    // TODO: Make this use an actual map
+                    pypi_conda_packages.insert(
+                        pypi_package.0.as_normalized().to_string(),
+                        pypi_package.clone(),
+                    );
+                }
+                // Convert the dependencies into match specs
+                let pypi_match_specs: Vec<MatchSpec> = pypi_conda_packages
+                    .into_iter()
+                    .map(|(_conda_name, pypi_package)| {
+                        // TODO: Use index set from the requirement
+                        matchspec_from_pypi(&pypi_package.0, pypi_package.1.first())
+                    })
+                    .collect::<Result<Vec<MatchSpec>, _>>()
+                    .into_diagnostic()?;
+            }
+
             // Convert the dependencies into match specs
-            let match_specs = dependencies
+            let mut match_specs = dependencies
                 .iter_specs()
                 .map(|(name, constraint)| {
                     let nameless = constraint
@@ -1619,6 +1714,21 @@ async fn spawn_solve_conda_environment_task(
                 })
                 .collect_vec();
 
+            let filtered_pypi_matchspec = pypi_match_specs
+                .into_iter()
+                .filter(|pypi| !match_specs.iter().any(|conda| conda.name == pypi.name))
+                .collect::<Vec<_>>();
+            tracing::info!(
+                "Found {} pypi dependencies that are not in the conda dependencies",
+                filtered_pypi_matchspec.len()
+            );
+            match_specs.extend(filtered_pypi_matchspec);
+            tracing::info!(
+                "Solving conda requirements for '{}' '{}' with {} dependencies",
+                group_name.fancy_display(),
+                consts::PLATFORM_STYLE.apply_to(platform),
+                match_specs.len()
+            );
             // Extract the repo data records needed to solve the environment.
             pb.set_message("loading repodata");
             let fetch_repodata_start = Instant::now();
@@ -1639,6 +1749,7 @@ async fn spawn_solve_conda_environment_task(
                 "fetched {total_records} records in {:?}",
                 fetch_repodata_start.elapsed()
             );
+            let _ = sleep(Duration::from_secs(2));
 
             // Solve conda packages
             pb.reset_style();
