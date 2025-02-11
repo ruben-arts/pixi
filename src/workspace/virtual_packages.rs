@@ -83,7 +83,7 @@ impl Environment<'_> {
     /// This method takes into account the system requirements specified in
     /// the project manifest.
     pub(crate) fn virtual_packages(&self, platform: Platform) -> Vec<VirtualPackage> {
-        get_minimal_virtual_packages(platform, &self.system_requirements())
+        get_minimal_virtual_packages(platform, &self.local_system_requirements())
     }
 }
 

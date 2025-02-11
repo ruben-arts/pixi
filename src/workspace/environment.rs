@@ -267,11 +267,7 @@ impl<'p> Environment<'p> {
     /// taking the solve group into account, use the
     /// [`Self::local_system_requirements`] method.
     pub(crate) fn system_requirements(&self) -> SystemRequirements {
-        if let Some(solve_group) = self.solve_group() {
-            solve_group.system_requirements()
-        } else {
-            self.local_system_requirements()
-        }
+        self.local_system_requirements()
     }
 
     /// Returns the activation scripts that should be run when activating this
