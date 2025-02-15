@@ -314,7 +314,7 @@ impl<'p> LockFileDerivedData<'p> {
     }
 
     fn cached_prefix(
-        &mut self,
+        &self,
         environment: &Environment<'p>,
         hash: &LockedEnvironmentHash,
     ) -> Option<Result<Prefix, Report>> {

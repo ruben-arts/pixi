@@ -1,7 +1,6 @@
 use super::has_specs::HasSpecs;
 use crate::{
     cli::cli_config::{DependencyConfig, PrefixUpdateConfig, WorkspaceConfig},
-    environment::get_update_lock_file_and_prefix,
     lock_file::UpdateMode,
     DependencyType, UpdateLockFileOptions, WorkspaceLocator,
 };
@@ -103,19 +102,28 @@ pub async fn execute(args: Args) -> miette::Result<()> {
 
     let workspace = workspace.save().await.into_diagnostic()?;
 
-    // TODO: update all environments touched by this feature defined.
-    // updating prefix after removing from toml
     if !prefix_update_config.no_lockfile_update {
-        get_update_lock_file_and_prefix(
-            &workspace.default_environment(),
-            UpdateMode::Revalidate,
-            UpdateLockFileOptions {
+        let mut locked_data = workspace
+            .update_lock_file(UpdateLockFileOptions {
                 lock_file_usage: prefix_update_config.lock_file_usage(),
-                no_install: prefix_update_config.no_install,
+                no_install: prefix_update_config.no_install
+                    || !workspace
+                        .default_environment()
+                        .platforms()
+                        .contains(&workspace.default_environment().best_platform()),
                 max_concurrent_solves: workspace.config().max_concurrent_solves(),
-            },
-        )
-        .await?;
+            })
+            .await?;
+
+        if !prefix_update_config.no_install {
+            // update the default environment prefix
+            if !prefix_update_config.no_install {
+                locked_data
+                    // Using quick validation to avoid unnecessary installations
+                    .prefix(&workspace.default_environment(), UpdateMode::QuickValidate)
+                    .await?;
+            }
+        }
     }
 
     dependency_config.display_success("Removed", Default::default());
