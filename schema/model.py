@@ -8,6 +8,7 @@ from pathlib import Path
 import tomllib
 from typing import Annotated, Any, Optional, Literal
 from enum import Enum
+from re import sub
 
 from pydantic import (
     AnyHttpUrl,
@@ -878,9 +879,185 @@ class SchemaJsonEncoder(json.JSONEncoder):
         return obj
 
 
+#######################
+# Markdown generation #
+#######################
+
+
+def kebabify(name: str) -> str:
+    return sub(r"(?<!^)(?=[A-Z])", "_", name).lower().replace("_", "-")
+
+
+def collect_used_defs(schema: dict) -> set[str]:
+    used = set()
+
+    def recurse(obj: Any):
+        if isinstance(obj, dict):
+            if "$ref" in obj and obj["$ref"].startswith("#/$defs/"):
+                used.add(obj["$ref"].split("/")[-1])
+            for v in obj.values():
+                recurse(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                recurse(item)
+
+    recurse(schema)
+    return used
+
+
+def get_top_level_defs(schema: dict) -> set[str]:
+    top_level = set()
+    for section in schema.get("properties", {}).values():
+        if "$ref" in section:
+            top_level.add(section["$ref"].split("/")[-1])
+        for opt in section.get("anyOf", []):
+            if "$ref" in opt:
+                top_level.add(opt["$ref"].split("/")[-1])
+    return top_level
+
+
+def extract_type(field: dict) -> str:
+    if "$ref" in field:
+        return f"[{field['$ref'].split('/')[-1]}](#{field['$ref'].split('/')[-1].lower()})"
+
+    if "anyOf" in field or "oneOf" in field:
+        options = field.get("anyOf") or field.get("oneOf")
+        return " | ".join(extract_type(opt) for opt in options if opt.get("type") != "null")
+
+    if field.get("type") == "array":
+        item = field.get("items", {})
+        return f"List[{extract_type(item)}]"
+
+    return field.get("type", "unknown").capitalize()
+
+
+def format_field(
+    prop_name: str, field: dict, required_fields: set, parent_path: str, defs: dict
+) -> str:
+    full_key = f"{parent_path}.{prop_name}" if parent_path else prop_name
+    key_path = ".".join(kebabify(p) for p in full_key.split("."))
+
+    # Resolve $ref recursively
+    if "$ref" in field:
+        ref = field["$ref"].split("/")[-1]
+        ref_def = defs.get(ref, {})
+        ref_props = ref_def.get("properties", {})
+        ref_required = set(ref_def.get("required", []))
+        return "\n".join(
+            format_field(sub_prop, sub_field, ref_required, full_key, defs)
+            for sub_prop, sub_field in ref_props.items()
+        )
+
+    lines = [f"### `{key_path}`"]
+
+    field_type = extract_type(field)
+    lines.append(f"**Type:** {field_type}\n")
+
+    is_list = field.get("type") == "array" or any(
+        opt.get("type") == "array" for opt in field.get("anyOf", [])
+    )
+
+    if prop_name in required_fields:
+        lines.append("**Required:** Yes\n")
+
+    if "default" in field and field["default"] is not None:
+        lines.append(f"**Default:** `{field['default']}`\n")
+
+    if "description" in field:
+        lines.append(field["description"])
+
+    if "examples" in field:
+        examples = field["examples"]
+        if all(isinstance(ex, dict) for ex in examples):
+            merged = {}
+            for ex in examples:
+                merged.update(ex)
+
+            lines.append(
+                f"```toml\n[{key_path}]\n"
+                + "\n".join(f'{k} = "{v}"' for k, v in merged.items())
+                + "\n```"
+            )
+
+        else:
+            for example in examples:
+                if example is None:
+                    continue
+                if is_list and not isinstance(example, list):
+                    example = [example]
+                if isinstance(example, list):
+                    items = ", ".join(json.dumps(x) for x in example)
+                    example_str = f"[{items}]"
+                else:
+                    example_str = json.dumps(example)
+
+                lines.append(
+                    f"```toml\n[{key_path.rsplit('.', 1)[0]}]\n{prop_name} = {example_str}\n```"
+                )
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def generate_markdown(schema: dict) -> str:
+    defs = schema.get("$defs", {})
+    used_defs = collect_used_defs(schema)
+    top_level_props = schema.get("properties", {})
+
+    lines = ["# pixi.toml Schema Documentation\n"]
+
+    for prop_name, prop in top_level_props.items():
+        if "$ref" in prop:
+            ref = prop["$ref"].split("/")[-1]
+            ref_def = defs.get(ref, {})
+            title = ref_def.get("title", ref)
+            lines.append(f"## {title}")
+            if "description" in ref_def:
+                lines.append(ref_def["description"] + "\n")
+
+            required = set(ref_def.get("required", []))
+            for sub_prop, sub_field in ref_def.get("properties", {}).items():
+                lines.append(format_field(sub_prop, sub_field, required, kebabify(prop_name), defs))
+
+    # Also render remaining defs that were used but not top-level
+    for def_name, def_schema in defs.items():
+        if def_name not in used_defs:
+            continue
+        if any(def_name == (p.get("$ref", "").split("/")[-1]) for p in top_level_props.values()):
+            continue  # already handled above
+
+        lines.append(f"## {def_name}")
+        if "description" in def_schema:
+            lines.append(def_schema["description"] + "\n")
+        required = set(def_schema.get("required", []))
+        for sub_prop, sub_field in def_schema.get("properties", {}).items():
+            lines.append(format_field(sub_prop, sub_field, required, kebabify(def_name), defs))
+
+    return "\n".join(lines)
+
+
 ##########################
 # Command Line Interface #
 ##########################
 
 if __name__ == "__main__":
-    print(json.dumps(BaseManifest.model_json_schema(), indent=2, cls=SchemaJsonEncoder))
+    """Print the JSON schema for the manifest."""
+
+    # If argument 'docs' is given, print the schema in a format suitable for documentation
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(description="Generate the JSON schema for the pixi manifest.")
+    parser.add_argument(
+        "--docs",
+        action="store_true",
+        help="Print the schema in a format suitable for documentation",
+    )
+    args = parser.parse_args()
+    schema = BaseManifest.model_json_schema()
+    if args.docs:
+        # Print the schema in a format suitable for documentation
+        print(generate_markdown(schema))
+    else:
+        # Print the schema in a format suitable for pixi.toml
+        print(json.dumps(schema, indent=2, cls=SchemaJsonEncoder))
