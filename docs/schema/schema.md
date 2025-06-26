@@ -9,11 +9,11 @@ A description of steps performed when an environment is activated
 The scripts to run when the environment is activated
 ```toml
 [activation]
-scripts = ["activate.sh"]
+scripts = ["activate.sh", "setup.sh"]
 ```
 ```toml
 [activation]
-scripts = ["activate.bat"]
+scripts = ["activate.bat", "setup.bat"]
 ```
 
 ### `activation.env`
@@ -282,11 +282,19 @@ A composition of the dependencies of features which can be activated to run task
 **Type:** List[String]
 
 The features that define the environment
+```toml
+[environment]
+features = ["feature1", "feature2"]
+```
 
 ### `environment.solve-group`
 **Type:** String
 
 The group name for environments that should be solved together
+```toml
+[environment]
+solve-group = "default"
+```
 
 ### `environment.no-default-feature`
 **Type:** Boolean
@@ -294,6 +302,10 @@ The group name for environments that should be solved together
 **Default:** `False`
 
 Whether to add the default feature to this environment
+```toml
+[environment]
+no-default-feature = "true"
+```
 
 ## Feature
 A composable aspect of the project which can contribute dependencies and tasks to an environment
@@ -329,7 +341,7 @@ The `conda` dependencies, consisting of a package name and a requirement in [Mat
 ### `feature.host-dependencies`
 **Type:** Object
 
-The host `conda` dependencies, used in the build process. See https://pixi.sh/latest/build/dependency_types/ for more information.
+Deprecated in favor of `package.host-dependencies`
 ```toml
 [feature.host-dependencies]
 python = ">=3.8"
@@ -338,7 +350,7 @@ python = ">=3.8"
 ### `feature.build-dependencies`
 **Type:** Object
 
-The build `conda` dependencies, used in the build process. See https://pixi.sh/latest/build/dependency_types/ for more information.
+Deprecated in favor of `package.build-dependencies`
 
 ### `feature.pypi-dependencies`
 **Type:** Object
@@ -416,6 +428,14 @@ family = "musl"
 **Type:** Number | String
 
 The version of `libc`
+```toml
+[libc-family]
+version = "2.28"
+```
+```toml
+[libc-family]
+version = "2.17"
+```
 
 ## MatchspecTable
 A precise description of a `conda` package version.
@@ -688,7 +708,7 @@ The configuration of the build backend
 ### `package.host-dependencies`
 **Type:** Object
 
-The host `conda` dependencies, used in the build process. See https://pixi.sh/latest/build/dependency_types/ for more information.
+Deprecated in favor of `package.host-dependencies`
 ```toml
 [package.host-dependencies]
 python = ">=3.8"
@@ -697,12 +717,12 @@ python = ">=3.8"
 ### `package.build-dependencies`
 **Type:** Object
 
-The build `conda` dependencies, used in the build process. See https://pixi.sh/latest/build/dependency_types/ for more information.
+Deprecated in favor of `package.build-dependencies`
 
 ### `package.run-dependencies`
 **Type:** Object
 
-The `conda` dependencies required at runtime. See https://pixi.sh/latest/build/dependency_types/ for more information.
+Deprecated in favor of `package.run-dependencies`
 
 ### `package.target`
 **Type:** Object
@@ -939,6 +959,14 @@ Platform-specific requirements
 **Type:** Number | String
 
 The minimum version of the Linux kernel
+```toml
+[system-requirements]
+linux = "5.4"
+```
+```toml
+[system-requirements]
+linux = "4.19"
+```
 
 ### `system-requirements.unix`
 **Type:** Boolean | String
@@ -953,11 +981,23 @@ unix = "true"
 **Type:** [LibcFamily](#libcfamily) | Number | String
 
 The minimum version of `libc`
+```toml
+[system-requirements]
+libc = {"family": "glibc", "version": "2.28"}
+```
+```toml
+[system-requirements]
+libc = 2.17
+```
 
 ### `system-requirements.cuda`
 **Type:** Number | String
 
 The minimum version of CUDA
+```toml
+[system-requirements]
+cuda = "12.0"
+```
 
 ### `system-requirements.archspec`
 **Type:** String
@@ -968,9 +1008,13 @@ The architecture the project supports
 **Type:** Number | String
 
 The minimum version of MacOS
+```toml
+[system-requirements]
+macos = "11.0"
+```
 
 ## Target
-A machine-specific configuration of dependencies and tasks
+A machine-specific configuration of dependencies, tasks and activation.
 
 ### `target.dependencies`
 **Type:** Object
@@ -980,7 +1024,7 @@ The `conda` dependencies, consisting of a package name and a requirement in [Mat
 ### `target.host-dependencies`
 **Type:** Object
 
-The host `conda` dependencies, used in the build process. See https://pixi.sh/latest/build/dependency_types/ for more information.
+Deprecated in favor of `package.host-dependencies`
 ```toml
 [target.host-dependencies]
 python = ">=3.8"
@@ -989,22 +1033,37 @@ python = ">=3.8"
 ### `target.build-dependencies`
 **Type:** Object
 
-The build `conda` dependencies, used in the build process. See https://pixi.sh/latest/build/dependency_types/ for more information.
+Deprecated in favor of `package.build-dependencies`
 
 ### `target.pypi-dependencies`
 **Type:** Object
 
 The PyPI dependencies for this target
+```toml
+[target.pypi-dependencies]
+numpy = "1.21.0"
+requests = ">=2.25, <3"
+```
 
 ### `target.tasks`
 **Type:** Object
 
 The tasks of the target
+```toml
+[target.tasks]
+build = "python setup.py build"
+test = "{'cmd': 'pytest --verbose', 'depends-on': ['build']}"
+deploy = "['build', 'test']"
+```
 
 ### `target.activation`
 **Type:** [Activation](#activation)
 
 The scripts used on the activation of the project for this target
+```toml
+[target.activation]
+scripts = "['activate.sh', 'setup.sh']"
+```
 
 ## TaskArgs
 The arguments of a task.
@@ -1027,11 +1086,23 @@ A precise definition of a task.
 **Type:** List[String] | String
 
 A shell command to run the task in the limited, but cross-platform `bash`-like `deno_task_shell`. See the documentation for [supported syntax](https://pixi.sh/latest/environments/advanced_tasks/#syntax)
+```toml
+[task-inline-table]
+cmd = ["echo", "Hello, World!"]
+```
+```toml
+[task-inline-table]
+cmd = ["echo Hello, World!"]
+```
 
 ### `task-inline-table.cwd`
 **Type:** String
 
 The working directory to run the task
+```toml
+[task-inline-table]
+cwd = "path/to/dir"
+```
 
 ### `task-inline-table.depends-on`
 **Type:** List[String] | String
@@ -1042,16 +1113,52 @@ The tasks that this task depends on. Environment variables will **not** be expan
 **Type:** List[[DependsOn](#dependson) | String] | [DependsOn](#dependson) | String
 
 The tasks that this task depends on. Environment variables will **not** be expanded.
+```toml
+[task-inline-table]
+depends-on = ["other-task"]
+```
+```toml
+[task-inline-table]
+depends-on = [{"args": ["arg1", "arg2"], "task": "other-task"}]
+```
+```toml
+[task-inline-table]
+depends-on = [{"args": ["arg1", "{{ forwarded }}"], "environment": "my-env", "task": "other-task"}]
+```
 
 ### `task-inline-table.inputs`
 **Type:** List[String]
 
 A list of `.gitignore`-style glob patterns that should be watched for changes before this command is run. Environment variables _will_ be expanded.
+```toml
+[task-inline-table]
+inputs = ["**/*.py"]
+```
+```toml
+[task-inline-table]
+inputs = ["src/**/*.js"]
+```
+```toml
+[task-inline-table]
+inputs = ["src/**/*.ts"]
+```
+```toml
+[task-inline-table]
+inputs = ["src/**/*.tsx"]
+```
 
 ### `task-inline-table.outputs`
 **Type:** List[String]
 
 A list of `.gitignore`-style glob patterns that are generated by this command. Environment variables _will_ be expanded.
+```toml
+[task-inline-table]
+outputs = ["build"]
+```
+```toml
+[task-inline-table]
+outputs = ["out"]
+```
 
 ### `task-inline-table.env`
 **Type:** Object
@@ -1076,6 +1183,10 @@ description = "Build the project"
 **Type:** Boolean
 
 Whether to run in a clean environment, removing all environment variables except those defined in `env` and by pixi itself.
+```toml
+[task-inline-table]
+clean-env = "true"
+```
 
 ### `task-inline-table.args`
 **Type:** List[[TaskArgs](#taskargs) | String]
