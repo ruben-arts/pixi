@@ -300,6 +300,13 @@ PyPIPackageName = NonEmptyStr
 DependenciesField = Field(
     None,
     description="The `conda` dependencies, consisting of a package name and a requirement in [MatchSpec](https://github.com/conda/conda/blob/078e7ee79381060217e1ec7f9b0e9cf80ecc8f3f/conda/models/match_spec.py) format",
+    examples=[
+        {"python": ">=3.8"},
+        {"numpy": "==1.21.0"},
+        {"requests": ">=2.25, <3"},
+        {"pytorch": "1.9.0", "channel": "pytorch"},
+        {"cmake": {"version": ">=3.18", "build": "h5b0a8f6_0"}},
+    ],
 )
 HostDependenciesField = Field(
     None,
@@ -947,14 +954,22 @@ def collect_used_defs(schema: dict) -> set[str]:
 
 
 def get_top_level_defs(schema: dict) -> set[str]:
-    top_level = set()
-    for section in schema.get("properties", {}).values():
-        if "$ref" in section:
-            top_level.add(section["$ref"].split("/")[-1])
-        for opt in section.get("anyOf", []):
-            if "$ref" in opt:
-                top_level.add(opt["$ref"].split("/")[-1])
-    return top_level
+    allowed = {
+        "workspace",
+        "package",
+        "dependencies",
+        "host-dependencies",
+        "build-dependencies",
+        "pypi-dependencies",
+        "tasks",
+        "system-requirements",
+        "feature",
+        "activation",
+        "target",
+        "environments",
+        "pypi-options",
+    }
+    return set(schema.get("properties", {}).keys()) & allowed
 
 
 def extract_type(field: dict) -> str:
@@ -1040,29 +1055,54 @@ def format_field(
     return "\n".join(lines)
 
 
+def extract_ref(prop: dict) -> str | None:
+    if "$ref" in prop:
+        return prop["$ref"].split("/")[-1]
+    for option in prop.get("anyOf", []) + prop.get("oneOf", []):
+        if "$ref" in option:
+            return option["$ref"].split("/")[-1]
+    return None
+
+
 def generate_markdown(schema: dict) -> str:
     defs = schema.get("$defs", {})
     used_defs = collect_used_defs(schema)
     top_level_props = schema.get("properties", {})
+    top_level_keys = get_top_level_defs(schema)
 
     lines = ["# pixi.toml Schema Documentation\n"]
 
     for prop_name, prop in top_level_props.items():
-        if "$ref" in prop:
-            ref = prop["$ref"].split("/")[-1]
-            ref_def = defs.get(ref, {})
-            title = ref_def.get("title", ref)
-            lines.append(f"## {title}")
-            if "description" in ref_def:
-                lines.append(ref_def["description"] + "\n")
+        if prop_name not in top_level_keys:
+            continue
+        ref = extract_ref(prop)
+        if not ref:
+            continue
+        ref_def = defs.get(ref, {})
+        title = ref_def.get("title", ref)
+        lines.append(f"## {title}")
+        if "description" in ref_def:
+            lines.append(ref_def["description"] + "\n")
 
-            required = set(ref_def.get("required", []))
-            for sub_prop, sub_field in ref_def.get("properties", {}).items():
-                lines.append(
-                    format_field(
-                        sub_prop, sub_field, required, kebab_or_alias(prop_name, sub_field), defs
-                    )
+        required = set(ref_def.get("required", []))
+        for sub_prop, sub_field in ref_def.get("properties", {}).items():
+            lines.append(
+                format_field(
+                    sub_prop, sub_field, required, kebab_or_alias(prop_name, sub_field), defs
                 )
+            )
+        # fallback: object with additionalProperties
+        if prop.get("type") == "object" and "additionalProperties" in prop:
+            lines.append(f"## `{prop_name}`\n")
+            lines.append(f"**Type:** Map[str, {extract_type(prop['additionalProperties'])}]\n")
+            if "description" in prop:
+                lines.append(prop["description"] + "\n")
+
+            # Try to show an example
+            example_value = (
+                ">=1.2.3" if extract_type(prop["additionalProperties"]) == "string" else "42"
+            )
+            lines.append(f'```toml\n[{prop_name}]\npackage-name = "{example_value}"\n```\n')
 
     # Also render remaining defs that were used but not top-level
     for def_name, def_schema in defs.items():
@@ -1102,7 +1142,15 @@ if __name__ == "__main__":
     schema = BaseManifest.model_json_schema()
     if args.docs:
         # Print the schema in a format suitable for documentation
-        print(generate_markdown(schema))
+        content = generate_markdown(schema)
+        print(content)
+        # Write to file relative to this file
+        from pathlib import Path
+
+        docs_path = Path(__file__).parent.parent / "docs" / "schema" / "schema.md"
+        with docs_path.open("w", encoding="utf-8") as f:
+            f.write(content)
+
     else:
         # Print the schema in a format suitable for pixi.toml
         print(json.dumps(schema, indent=2, cls=SchemaJsonEncoder))
