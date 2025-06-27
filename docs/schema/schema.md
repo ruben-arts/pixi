@@ -1,6 +1,6 @@
 # pixi.toml Schema Documentation
 
-## Workspace
+## workspace
 The project's metadata information.
 
 ### `workspace.name`
@@ -32,7 +32,7 @@ authors = ["John Doe <j.doe@prefix.dev>"]
 ```
 
 ### `workspace.channels`
-**Type:** List[String | String | [ChannelInlineTable](#channelinlinetable)]
+**Type:** List[String | Url | [Channel](#channel)]
 
 **Required:** Yes
 
@@ -85,17 +85,17 @@ The path to the license file of the project
 The path to the readme file of the project
 
 ### `workspace.homepage`
-**Type:** String
+**Type:** Url
 
 The URL of the homepage of the project
 
 ### `workspace.repository`
-**Type:** String
+**Type:** Url
 
 The URL of the repository of the project
 
 ### `workspace.documentation`
-**Type:** String
+**Type:** Url
 
 The URL of the documentation of the project
 
@@ -133,7 +133,7 @@ The required version spec for pixi itself to resolve and build the project.
 requires-pixi = ">=0.40"
 ```
 
-## Package
+## package
 The package's metadata information.
 
 ### `package.name`
@@ -180,131 +180,22 @@ The path to the license file of the project
 The path to the readme file of the project
 
 ### `package.homepage`
-**Type:** String
+**Type:** Url
 
 The URL of the homepage of the project
 
 ### `package.repository`
-**Type:** String
+**Type:** Url
 
 The URL of the repository of the project
 
 ### `package.documentation`
-**Type:** String
+**Type:** Url
 
 The URL of the documentation of the project
 
-### `package.build.backend.version`
-**Type:** String
-
-The version of the package in [MatchSpec](https://github.com/conda/conda/blob/078e7ee79381060217e1ec7f9b0e9cf80ecc8f3f/conda/models/match_spec.py) format
-
-### `package.build.backend.build`
-**Type:** String
-
-The build string of the package
-
-### `package.build.backend.build-number`
-**Type:** String
-
-The build number of the package, can be a spec like `>=1` or `<=10` or `1`
-
-### `package.build.backend.file-name`
-**Type:** String
-
-The file name of the package
-
-### `package.build.backend.channel`
-**Type:** String
-
-The channel the packages needs to be fetched from
-```toml
-[package.build.backend]
-channel = "conda-forge"
-```
-```toml
-[package.build.backend]
-channel = "pytorch"
-```
-```toml
-[package.build.backend]
-channel = "https://repo.prefix.dev/conda-forge"
-```
-
-### `package.build.backend.subdir`
-**Type:** String
-
-The subdir of the package, also known as platform
-
-### `package.build.backend.license`
-**Type:** String
-
-The license of the package
-
-### `package.build.backend.path`
-**Type:** String
-
-The path to the package
-
-### `package.build.backend.url`
-**Type:** String
-
-The URL to the package
-
-### `package.build.backend.md5`
-**Type:** String
-
-The md5 hash of the package
-
-### `package.build.backend.sha256`
-**Type:** String
-
-The sha256 hash of the package
-
-### `package.build.backend.git`
-**Type:** String
-
-The git URL to the repo
-
-### `package.build.backend.rev`
-**Type:** String
-
-A git SHA revision to use
-
-### `package.build.backend.tag`
-**Type:** String
-
-A git tag to use
-
-### `package.build.backend.branch`
-**Type:** String
-
-A git branch to use
-
-### `package.build.backend.subdirectory`
-**Type:** String
-
-A subdirectory to use in the repo
-
-### `package.build.backend.name`
-**Type:** String
-
-The name of the build backend package
-
-### `package.build.channels`
-**Type:** List[String | String | [ChannelInlineTable](#channelinlinetable)]
-
-The `conda` channels that are used to fetch the build backend from
-
-### `package.build.additional-dependencies`
-**Type:** Object
-
-Additional dependencies to install alongside the build backend
-
-### `package.build.configuration`
-**Type:** Object
-
-The configuration of the build backend
+### `package.build`
+**Type:** [Build](#build)
 
 ### `package.host-dependencies`
 **Type:** Object
@@ -334,7 +225,7 @@ Machine-specific aspects of the package
 linux = "{'host-dependencies': {'python': '3.8'}}"
 ```
 
-## PyPIOptions
+## py-p-i-options
 Options that determine the behavior of PyPI package resolution and installation
 
 ### `pypi-options.index-url`
@@ -407,7 +298,7 @@ no-build = ["true"]
 no-build = ["false"]
 ```
 
-## SystemRequirements
+## system-requirements
 Platform-specific requirements
 
 ### `system-requirements.linux`
@@ -468,7 +359,7 @@ The minimum version of MacOS
 macos = "11.0"
 ```
 
-## Activation
+## activation
 A description of steps performed when an environment is activated
 
 ### `activation.scripts`
@@ -494,7 +385,7 @@ key = "value"
 ARGUMENT = "value"
 ```
 
-## Activation
+## activation
 A description of steps performed when an environment is activated
 
 ### `activation.scripts`
@@ -520,106 +411,12 @@ key = "value"
 ARGUMENT = "value"
 ```
 
-## Build
-### `build.backend.version`
-**Type:** String
-
-The version of the package in [MatchSpec](https://github.com/conda/conda/blob/078e7ee79381060217e1ec7f9b0e9cf80ecc8f3f/conda/models/match_spec.py) format
-
-### `build.backend.build`
-**Type:** String
-
-The build string of the package
-
-### `build.backend.build-number`
-**Type:** String
-
-The build number of the package, can be a spec like `>=1` or `<=10` or `1`
-
-### `build.backend.file-name`
-**Type:** String
-
-The file name of the package
-
-### `build.backend.channel`
-**Type:** String
-
-The channel the packages needs to be fetched from
-```toml
-[build.backend]
-channel = "conda-forge"
-```
-```toml
-[build.backend]
-channel = "pytorch"
-```
-```toml
-[build.backend]
-channel = "https://repo.prefix.dev/conda-forge"
-```
-
-### `build.backend.subdir`
-**Type:** String
-
-The subdir of the package, also known as platform
-
-### `build.backend.license`
-**Type:** String
-
-The license of the package
-
-### `build.backend.path`
-**Type:** String
-
-The path to the package
-
-### `build.backend.url`
-**Type:** String
-
-The URL to the package
-
-### `build.backend.md5`
-**Type:** String
-
-The md5 hash of the package
-
-### `build.backend.sha256`
-**Type:** String
-
-The sha256 hash of the package
-
-### `build.backend.git`
-**Type:** String
-
-The git URL to the repo
-
-### `build.backend.rev`
-**Type:** String
-
-A git SHA revision to use
-
-### `build.backend.tag`
-**Type:** String
-
-A git tag to use
-
-### `build.backend.branch`
-**Type:** String
-
-A git branch to use
-
-### `build.backend.subdirectory`
-**Type:** String
-
-A subdirectory to use in the repo
-
-### `build.backend.name`
-**Type:** String
-
-The name of the build backend package
+## build
+### `build.backend`
+**Type:** [BuildBackend](#build-backend)
 
 ### `build.channels`
-**Type:** List[String | String | [ChannelInlineTable](#channelinlinetable)]
+**Type:** List[String | Url | [Channel](#channel)]
 
 The `conda` channels that are used to fetch the build backend from
 
@@ -633,7 +430,7 @@ Additional dependencies to install alongside the build backend
 
 The configuration of the build backend
 
-## BuildBackend
+## build-backend
 ### `build-backend.version`
 **Type:** String
 
@@ -731,25 +528,25 @@ A subdirectory to use in the repo
 
 The name of the build backend package
 
-## ChannelInlineTable
+## channel
 A precise description of a `conda` channel, with an optional priority.
 
-### `channel-inline-table.channel`
-**Type:** String | String
+### `channel.channel`
+**Type:** String | Url
 
 **Required:** Yes
 
 The channel the packages needs to be fetched from
 
-### `channel-inline-table.priority`
+### `channel.priority`
 **Type:** Integer
 
 The priority of the channel
 
-## ChannelPriority
+## channel-priority
 The priority of the channel.
 
-## DependsOn
+## depends-on
 The dependencies of a task.
 
 ### `depends-on.task`
@@ -769,7 +566,7 @@ The arguments to pass to the task
 
 The environment to use for the task
 
-## Environment
+## environment
 A composition of the dependencies of features which can be activated to run tasks or provide a shell
 
 ### `environment.features`
@@ -801,11 +598,11 @@ Whether to add the default feature to this environment
 no-default-feature = "true"
 ```
 
-## Feature
+## feature
 A composable aspect of the project which can contribute dependencies and tasks to an environment
 
 ### `feature.channels`
-**Type:** List[String | String | [ChannelInlineTable](#channelinlinetable)]
+**Type:** List[String | Url | [Channel](#channel)]
 
 The `conda` channels that can be considered when solving environments containing this feature
 
@@ -889,7 +686,7 @@ linux = "{'dependencies': {'python': '3.8'}}"
 
 Options related to PyPI indexes for this feature
 
-## FindLinksPath
+## find-links-path
 The path to the directory containing packages
 
 ### `find-links-path.path`
@@ -901,7 +698,7 @@ Path to the directory of packages
 path = "./links"
 ```
 
-## FindLinksURL
+## find-links-u-r-l
 The URL to the html file containing href-links to packages
 
 ### `find-links-u-r-l.url`
@@ -913,7 +710,7 @@ URL to html file with href-links to packages
 url = "https://simple-index-is-here.com"
 ```
 
-## LibcFamily
+## libc-family
 ### `libc-family.family`
 **Type:** String
 
@@ -940,7 +737,7 @@ version = "2.28"
 version = "2.17"
 ```
 
-## MatchspecTable
+## matchspec-table
 A precise description of a `conda` package version.
 
 ### `matchspec-table.version`
@@ -1035,7 +832,7 @@ A git branch to use
 
 A subdirectory to use in the repo
 
-## Package
+## package
 The package's metadata information.
 
 ### `package.name`
@@ -1082,131 +879,22 @@ The path to the license file of the project
 The path to the readme file of the project
 
 ### `package.homepage`
-**Type:** String
+**Type:** Url
 
 The URL of the homepage of the project
 
 ### `package.repository`
-**Type:** String
+**Type:** Url
 
 The URL of the repository of the project
 
 ### `package.documentation`
-**Type:** String
+**Type:** Url
 
 The URL of the documentation of the project
 
-### `package.build.backend.version`
-**Type:** String
-
-The version of the package in [MatchSpec](https://github.com/conda/conda/blob/078e7ee79381060217e1ec7f9b0e9cf80ecc8f3f/conda/models/match_spec.py) format
-
-### `package.build.backend.build`
-**Type:** String
-
-The build string of the package
-
-### `package.build.backend.build-number`
-**Type:** String
-
-The build number of the package, can be a spec like `>=1` or `<=10` or `1`
-
-### `package.build.backend.file-name`
-**Type:** String
-
-The file name of the package
-
-### `package.build.backend.channel`
-**Type:** String
-
-The channel the packages needs to be fetched from
-```toml
-[package.build.backend]
-channel = "conda-forge"
-```
-```toml
-[package.build.backend]
-channel = "pytorch"
-```
-```toml
-[package.build.backend]
-channel = "https://repo.prefix.dev/conda-forge"
-```
-
-### `package.build.backend.subdir`
-**Type:** String
-
-The subdir of the package, also known as platform
-
-### `package.build.backend.license`
-**Type:** String
-
-The license of the package
-
-### `package.build.backend.path`
-**Type:** String
-
-The path to the package
-
-### `package.build.backend.url`
-**Type:** String
-
-The URL to the package
-
-### `package.build.backend.md5`
-**Type:** String
-
-The md5 hash of the package
-
-### `package.build.backend.sha256`
-**Type:** String
-
-The sha256 hash of the package
-
-### `package.build.backend.git`
-**Type:** String
-
-The git URL to the repo
-
-### `package.build.backend.rev`
-**Type:** String
-
-A git SHA revision to use
-
-### `package.build.backend.tag`
-**Type:** String
-
-A git tag to use
-
-### `package.build.backend.branch`
-**Type:** String
-
-A git branch to use
-
-### `package.build.backend.subdirectory`
-**Type:** String
-
-A subdirectory to use in the repo
-
-### `package.build.backend.name`
-**Type:** String
-
-The name of the build backend package
-
-### `package.build.channels`
-**Type:** List[String | String | [ChannelInlineTable](#channelinlinetable)]
-
-The `conda` channels that are used to fetch the build backend from
-
-### `package.build.additional-dependencies`
-**Type:** Object
-
-Additional dependencies to install alongside the build backend
-
-### `package.build.configuration`
-**Type:** Object
-
-The configuration of the build backend
+### `package.build`
+**Type:** [Build](#build)
 
 ### `package.host-dependencies`
 **Type:** Object
@@ -1236,10 +924,10 @@ Machine-specific aspects of the package
 linux = "{'host-dependencies': {'python': '3.8'}}"
 ```
 
-## Platform
+## platform
 A supported operating system and processor architecture pair.
 
-## PyPIGitBranchRequirement
+## py-p-i-git-branch-requirement
 ### `py-p-i-git-branch-requirement.extras`
 **Type:** List[String]
 
@@ -1260,7 +948,7 @@ The subdirectory in the repo, a path from the root of the repo.
 
 A `git` branch to use
 
-## PyPIGitRevRequirement
+## py-p-i-git-rev-requirement
 ### `py-p-i-git-rev-requirement.extras`
 **Type:** List[String]
 
@@ -1281,7 +969,7 @@ The subdirectory in the repo, a path from the root of the repo.
 
 A `git` SHA revision to use
 
-## PyPIGitTagRequirement
+## py-p-i-git-tag-requirement
 ### `py-p-i-git-tag-requirement.extras`
 **Type:** List[String]
 
@@ -1302,7 +990,7 @@ The subdirectory in the repo, a path from the root of the repo.
 
 A `git` tag to use
 
-## PyPIOptions
+## py-p-i-options
 Options that determine the behavior of PyPI package resolution and installation
 
 ### `py-p-i-options.index-url`
@@ -1375,7 +1063,7 @@ no-build = ["true"]
 no-build = ["false"]
 ```
 
-## PyPIPathRequirement
+## py-p-i-path-requirement
 ### `py-p-i-path-requirement.extras`
 **Type:** List[String]
 
@@ -1396,7 +1084,7 @@ If `true` the package will be installed as editable
 
 The subdirectory in the repo, a path from the root of the repo.
 
-## PyPIUrlRequirement
+## py-p-i-url-requirement
 ### `py-p-i-url-requirement.extras`
 **Type:** List[String]
 
@@ -1407,7 +1095,7 @@ The [PEP 508 extras](https://peps.python.org/pep-0508/#extras) of the package
 
 A URL to a remote source or wheel
 
-## PyPIVersion
+## py-p-i-version
 ### `py-p-i-version.extras`
 **Type:** List[String]
 
@@ -1423,7 +1111,7 @@ The version of the package in [PEP 440](https://www.python.org/dev/peps/pep-0440
 
 The index to fetch the package from
 
-## S3Options
+## s3-options
 Options related to S3 for this project
 
 ### `s3-options.endpoint-url`
@@ -1455,7 +1143,7 @@ region = "eu-central-1"
 
 Whether to force path style for the S3 client
 
-## SystemRequirements
+## system-requirements
 Platform-specific requirements
 
 ### `system-requirements.linux`
@@ -1516,7 +1204,7 @@ The minimum version of MacOS
 macos = "11.0"
 ```
 
-## Target
+## target
 A machine-specific configuration of dependencies, tasks and activation.
 
 ### `target.dependencies`
@@ -1577,7 +1265,129 @@ The scripts used on the activation of the project for this target
 scripts = "['activate.sh', 'setup.sh']"
 ```
 
-## TaskArgs
+## task
+A precise definition of a task.
+
+### `task.cmd`
+**Type:** List[String] | String
+
+A shell command to run the task in the limited, but cross-platform `bash`-like `deno_task_shell`. See the documentation for [supported syntax](https://pixi.sh/latest/environments/advanced_tasks/#syntax)
+```toml
+[task]
+cmd = ["echo", "Hello, World!"]
+```
+```toml
+[task]
+cmd = ["echo Hello, World!"]
+```
+
+### `task.cwd`
+**Type:** String
+
+The working directory to run the task
+```toml
+[task]
+cwd = "path/to/dir"
+```
+
+### `task.depends-on`
+**Type:** List[String] | String
+
+The tasks that this task depends on. Environment variables will **not** be expanded. Deprecated in favor of `depends-on` from v0.21.0 onward.
+
+### `task.depends-on`
+**Type:** List[[DependsOn](#dependson) | String] | [DependsOn](#dependson) | String
+
+The tasks that this task depends on. Environment variables will **not** be expanded.
+```toml
+[task]
+depends-on = ["other-task"]
+```
+```toml
+[task]
+depends-on = [{"args": ["arg1", "arg2"], "task": "other-task"}]
+```
+```toml
+[task]
+depends-on = [{"args": ["arg1", "{{ forwarded }}"], "environment": "my-env", "task": "other-task"}]
+```
+
+### `task.inputs`
+**Type:** List[String]
+
+A list of `.gitignore`-style glob patterns that should be watched for changes before this command is run. Environment variables _will_ be expanded.
+```toml
+[task]
+inputs = ["**/*.py"]
+```
+```toml
+[task]
+inputs = ["src/**/*.js"]
+```
+```toml
+[task]
+inputs = ["src/**/*.ts"]
+```
+```toml
+[task]
+inputs = ["src/**/*.tsx"]
+```
+
+### `task.outputs`
+**Type:** List[String]
+
+A list of `.gitignore`-style glob patterns that are generated by this command. Environment variables _will_ be expanded.
+```toml
+[task]
+outputs = ["build"]
+```
+```toml
+[task]
+outputs = ["out"]
+```
+
+### `task.env`
+**Type:** Object
+
+A map of environment variables to values, used in the task, these will be overwritten by the shell.
+```toml
+[task.env]
+key = "value"
+ARGUMENT = "value"
+```
+
+### `task.description`
+**Type:** String
+
+A short description of the task
+```toml
+[task]
+description = "Build the project"
+```
+
+### `task.clean-env`
+**Type:** Boolean
+
+Whether to run in a clean environment, removing all environment variables except those defined in `env` and by pixi itself.
+```toml
+[task]
+clean-env = "true"
+```
+
+### `task.args`
+**Type:** List[[TaskArgs](#taskargs) | String]
+
+The arguments to pass to the task
+```toml
+[task]
+args = ["arg1"]
+```
+```toml
+[task]
+args = ["arg2"]
+```
+
+## task-args
 The arguments of a task.
 
 ### `task-args.arg`
@@ -1591,129 +1401,7 @@ The arguments of a task.
 
 The default value of the argument
 
-## TaskInlineTable
-A precise definition of a task.
-
-### `task-inline-table.cmd`
-**Type:** List[String] | String
-
-A shell command to run the task in the limited, but cross-platform `bash`-like `deno_task_shell`. See the documentation for [supported syntax](https://pixi.sh/latest/environments/advanced_tasks/#syntax)
-```toml
-[task-inline-table]
-cmd = ["echo", "Hello, World!"]
-```
-```toml
-[task-inline-table]
-cmd = ["echo Hello, World!"]
-```
-
-### `task-inline-table.cwd`
-**Type:** String
-
-The working directory to run the task
-```toml
-[task-inline-table]
-cwd = "path/to/dir"
-```
-
-### `task-inline-table.depends-on`
-**Type:** List[String] | String
-
-The tasks that this task depends on. Environment variables will **not** be expanded. Deprecated in favor of `depends-on` from v0.21.0 onward.
-
-### `task-inline-table.depends-on`
-**Type:** List[[DependsOn](#dependson) | String] | [DependsOn](#dependson) | String
-
-The tasks that this task depends on. Environment variables will **not** be expanded.
-```toml
-[task-inline-table]
-depends-on = ["other-task"]
-```
-```toml
-[task-inline-table]
-depends-on = [{"args": ["arg1", "arg2"], "task": "other-task"}]
-```
-```toml
-[task-inline-table]
-depends-on = [{"args": ["arg1", "{{ forwarded }}"], "environment": "my-env", "task": "other-task"}]
-```
-
-### `task-inline-table.inputs`
-**Type:** List[String]
-
-A list of `.gitignore`-style glob patterns that should be watched for changes before this command is run. Environment variables _will_ be expanded.
-```toml
-[task-inline-table]
-inputs = ["**/*.py"]
-```
-```toml
-[task-inline-table]
-inputs = ["src/**/*.js"]
-```
-```toml
-[task-inline-table]
-inputs = ["src/**/*.ts"]
-```
-```toml
-[task-inline-table]
-inputs = ["src/**/*.tsx"]
-```
-
-### `task-inline-table.outputs`
-**Type:** List[String]
-
-A list of `.gitignore`-style glob patterns that are generated by this command. Environment variables _will_ be expanded.
-```toml
-[task-inline-table]
-outputs = ["build"]
-```
-```toml
-[task-inline-table]
-outputs = ["out"]
-```
-
-### `task-inline-table.env`
-**Type:** Object
-
-A map of environment variables to values, used in the task, these will be overwritten by the shell.
-```toml
-[task-inline-table.env]
-key = "value"
-ARGUMENT = "value"
-```
-
-### `task-inline-table.description`
-**Type:** String
-
-A short description of the task
-```toml
-[task-inline-table]
-description = "Build the project"
-```
-
-### `task-inline-table.clean-env`
-**Type:** Boolean
-
-Whether to run in a clean environment, removing all environment variables except those defined in `env` and by pixi itself.
-```toml
-[task-inline-table]
-clean-env = "true"
-```
-
-### `task-inline-table.args`
-**Type:** List[[TaskArgs](#taskargs) | String]
-
-The arguments to pass to the task
-```toml
-[task-inline-table]
-args = ["arg1"]
-```
-```toml
-[task-inline-table]
-args = ["arg2"]
-```
-
-## Workspace
+## workspace
 The project's metadata information.
 
 ### `workspace.name`
@@ -1745,7 +1433,7 @@ authors = ["John Doe <j.doe@prefix.dev>"]
 ```
 
 ### `workspace.channels`
-**Type:** List[String | String | [ChannelInlineTable](#channelinlinetable)]
+**Type:** List[String | Url | [Channel](#channel)]
 
 **Required:** Yes
 
@@ -1798,17 +1486,17 @@ The path to the license file of the project
 The path to the readme file of the project
 
 ### `workspace.homepage`
-**Type:** String
+**Type:** Url
 
 The URL of the homepage of the project
 
 ### `workspace.repository`
-**Type:** String
+**Type:** Url
 
 The URL of the repository of the project
 
 ### `workspace.documentation`
-**Type:** String
+**Type:** Url
 
 The URL of the documentation of the project
 

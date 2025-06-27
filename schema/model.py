@@ -81,14 +81,14 @@ class StrictBaseModel(BaseModel):
 ChannelName = NonEmptyStr | AnyHttpUrl
 
 
-class ChannelInlineTable(StrictBaseModel):
+class Channel(StrictBaseModel):
     """A precise description of a `conda` channel, with an optional priority."""
 
     channel: ChannelName = Field(description="The channel the packages needs to be fetched from")
     priority: int | None = Field(None, description="The priority of the channel")
 
 
-Channel = ChannelName | ChannelInlineTable
+Channel = ChannelName | Channel
 
 
 class ChannelPriority(str, Enum):
@@ -346,7 +346,7 @@ class DependsOn(StrictBaseModel):
     )
 
 
-class TaskInlineTable(StrictBaseModel):
+class Task(StrictBaseModel):
     """A precise definition of a task."""
 
     cmd: list[NonEmptyStr] | NonEmptyStr | None = Field(
@@ -508,7 +508,7 @@ class Target(StrictBaseModel):
             {"requests": ">=2.25, <3"},
         ],
     )
-    tasks: dict[TaskName, TaskInlineTable | list[DependsOn] | NonEmptyStr] | None = Field(
+    tasks: dict[TaskName, Task | list[DependsOn] | NonEmptyStr] | None = Field(
         None,
         description="The tasks of the target",
         examples=[
@@ -551,7 +551,7 @@ class Feature(StrictBaseModel):
     pypi_dependencies: dict[PyPIPackageName, PyPIRequirement] | None = Field(
         None, description="The PyPI dependencies of this feature"
     )
-    tasks: dict[TaskName, TaskInlineTable | list[DependsOn] | NonEmptyStr] | None = Field(
+    tasks: dict[TaskName, Task | list[DependsOn] | NonEmptyStr] | None = Field(
         None, description="The tasks provided by this feature"
     )
     activation: Activation | None = Field(
@@ -756,7 +756,7 @@ class BaseManifest(StrictBaseModel):
         None, description="The PyPI dependencies"
     )
     pypi_options: PyPIOptions | None = Field(None, description="Options related to PyPI indexes")
-    tasks: dict[TaskName, TaskInlineTable | list[DependsOn] | NonEmptyStr] | None = Field(
+    tasks: dict[TaskName, Task | list[DependsOn] | NonEmptyStr] | None = Field(
         None, description="The tasks of the project"
     )
     system_requirements: SystemRequirements | None = Field(
@@ -980,6 +980,9 @@ def extract_type(field: dict) -> str:
         options = field.get("anyOf") or field.get("oneOf")
         return " | ".join(extract_type(opt) for opt in options if opt.get("type") != "null")
 
+    if "uri" in field.get("format", ""):
+        return "Url"
+
     if field.get("type") == "array":
         item = field.get("items", {})
         return f"List[{extract_type(item)}]"
@@ -999,12 +1002,22 @@ def format_field(
         ref_def = defs.get(ref, {})
         ref_props = ref_def.get("properties", {})
         ref_required = set(ref_def.get("required", []))
-        return "\n".join(
-            format_field(sub_prop, sub_field, ref_required, full_key, defs)
-            for sub_prop, sub_field in ref_props.items()
-        )
 
-    lines = [f"### `{key_path}`"]
+        # Inline only if it's simple (≤3 props, no nested $refs)
+        if len(ref_props) <= 3 and not any("$ref" in v for v in ref_props.values()):
+            return "\n".join(
+                format_field(sub_prop, sub_field, ref_required, full_key, defs)
+                for sub_prop, sub_field in ref_props.items()
+            )
+
+        # Otherwise, just link to it
+        return f"### `{key_path}`\n**Type:** [{ref}](#{kebabify(ref)})\n"
+
+    lines = []
+    if parent_path:
+        lines.append(f"### `{key_path}`")
+    else:
+        lines.append(f"## `{key_path}`")
 
     field_type = extract_type(field)
     lines.append(f"**Type:** {field_type}\n")
@@ -1080,7 +1093,7 @@ def generate_markdown(schema: dict) -> str:
             continue
         ref_def = defs.get(ref, {})
         title = ref_def.get("title", ref)
-        lines.append(f"## {title}")
+        lines.append(f"## {kebabify(title)}")
         if "description" in ref_def:
             lines.append(ref_def["description"] + "\n")
 
@@ -1111,7 +1124,7 @@ def generate_markdown(schema: dict) -> str:
         if any(def_name == (p.get("$ref", "").split("/")[-1]) for p in top_level_props.values()):
             continue  # already handled above
 
-        lines.append(f"## {def_name}")
+        lines.append(f"## {kebabify(def_name)}")
         if "description" in def_schema:
             lines.append(def_schema["description"] + "\n")
         required = set(def_schema.get("required", []))
