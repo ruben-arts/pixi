@@ -270,43 +270,6 @@ pub enum PackageError {
 }
 
 impl TomlPackage {
-    /// Helper function to resolve a required field with 3-tier hierarchy:
-    /// 1. Direct value (from package)
-    /// 2. Workspace inheritance (from workspace)
-    /// 3. Package defaults (from [project] section if the manifest is a
-    ///    `pyproject.toml`)
-    /// 4. Error if missing at all levels
-    fn resolve_required_field_with_defaults<T>(
-        field: Option<WorkspaceInheritableField<T>>,
-        workspace_value: Option<T>,
-        default_value: Option<T>,
-        field_name: &'static str,
-        package_span: Span,
-    ) -> Result<T, TomlError> {
-        match field {
-            Some(WorkspaceInheritableField::Value(v)) => Ok(v),
-            Some(WorkspaceInheritableField::Workspace(span)) => workspace_value.ok_or_else(|| {
-                GenericError::new(format!("the workspace does not define a '{}'", field_name))
-                    .with_span(span.into())
-                    .into()
-            }),
-            Some(WorkspaceInheritableField::NotWorkspace(span)) => {
-                Err(workspace_cannot_be_false().with_span(span.into()).into())
-            }
-            None => {
-                // Fall back to package defaults
-                default_value.ok_or(
-                    Error {
-                        kind: ErrorKind::MissingField(field_name),
-                        span: package_span,
-                        line_info: None,
-                    }
-                    .into(),
-                )
-            }
-        }
-    }
-
     /// Helper function to resolve an optional field with 3-tier hierarchy:
     /// 1. Direct value (from package)
     /// 2. Workspace inheritance (from workspace) - ERROR if explicitly
@@ -357,20 +320,18 @@ impl TomlPackage {
         warnings.extend(build_result.warnings);
 
         // Resolve fields with 3-tier hierarchy: direct → workspace → package defaults →
-        // error
-        let name = Self::resolve_required_field_with_defaults(
+        // None (now optional)
+        let name = Self::resolve_optional_field_with_defaults(
             self.name,
             workspace.name,
             package_defaults.name,
             "name",
-            self.span,
         )?;
-        let version = Self::resolve_required_field_with_defaults(
+        let version = Self::resolve_optional_field_with_defaults(
             self.version,
             workspace.version,
             package_defaults.version,
             "version",
-            self.span,
         )?;
 
         let default_package_target = TomlPackageTarget {
@@ -642,8 +603,8 @@ mod test {
                 None,
             )
             .unwrap();
-        assert_eq!(manifest.value.package.name, "workspace-name");
-        assert_eq!(manifest.value.package.version.to_string(), "1.0.0");
+        assert_eq!(manifest.value.package.name, Some("workspace-name".to_string()));
+        assert_eq!(manifest.value.package.version.as_ref().map(|v| v.to_string()), Some("1.0.0".to_string()));
         assert_eq!(
             manifest.value.package.description,
             Some("Package description".to_string())
@@ -679,15 +640,17 @@ mod test {
         let package = TomlPackage::from_toml_str(input).unwrap();
         let workspace = WorkspacePackageProperties::default();
 
-        let parse_error = package
+        let manifest = package
             .into_manifest(
                 workspace,
                 PackageDefaults::default(),
                 &Preview::default(),
                 None,
             )
-            .unwrap_err();
-        assert_snapshot!(format_parse_error(input, parse_error));
+            .unwrap();
+        // Name should now be None since it's optional
+        assert_eq!(manifest.value.package.name, None);
+        assert_eq!(manifest.value.package.version.as_ref().map(|v| v.to_string()), Some("1.0.0".to_string()));
     }
 
     #[test]
@@ -719,8 +682,8 @@ mod test {
                 None,
             )
             .unwrap();
-        assert_eq!(manifest.value.package.name, "workspace-name");
-        assert_eq!(manifest.value.package.version.to_string(), "2.0.0");
+        assert_eq!(manifest.value.package.name, Some("workspace-name".to_string()));
+        assert_eq!(manifest.value.package.version.as_ref().map(|v| v.to_string()), Some("2.0.0".to_string()));
         assert_eq!(
             manifest.value.package.description,
             Some("Workspace description".to_string())
@@ -810,8 +773,8 @@ mod test {
             .into_manifest(workspace, package_defaults, &Preview::default(), None)
             .unwrap();
         // Should use package defaults for name and version
-        assert_eq!(manifest.value.package.name, "default-name");
-        assert_eq!(manifest.value.package.version.to_string(), "2.0.0");
+        assert_eq!(manifest.value.package.name, Some("default-name".to_string()));
+        assert_eq!(manifest.value.package.version.as_ref().map(|v| v.to_string()), Some("2.0.0".to_string()));
         // Should use direct value for description
         assert_eq!(
             manifest.value.package.description,
@@ -851,8 +814,8 @@ mod test {
             .into_manifest(workspace, package_defaults, &Preview::default(), None)
             .unwrap();
         // Should use workspace values for name and version (overrides defaults)
-        assert_eq!(manifest.value.package.name, "workspace-name");
-        assert_eq!(manifest.value.package.version.to_string(), "3.0.0");
+        assert_eq!(manifest.value.package.name, Some("workspace-name".to_string()));
+        assert_eq!(manifest.value.package.version.as_ref().map(|v| v.to_string()), Some("3.0.0".to_string()));
         // Should use package defaults for description (not specified anywhere else)
         assert_eq!(
             manifest.value.package.description,
@@ -861,7 +824,7 @@ mod test {
     }
 
     #[test]
-    fn test_missing_required_field_no_defaults_no_workspace() {
+    fn test_missing_name_field_no_defaults_no_workspace() {
         let input = r#"
         version = "1.0.0"
 
@@ -873,10 +836,12 @@ mod test {
         let workspace = WorkspacePackageProperties::default(); // Empty workspace
         let package_defaults = PackageDefaults::default(); // Empty defaults
 
-        let parse_error = package
+        let manifest = package
             .into_manifest(workspace, package_defaults, &Preview::default(), None)
-            .unwrap_err();
-        assert_snapshot!(format_parse_error(input, parse_error));
+            .unwrap();
+        // Both name and version are now optional, so no error should occur
+        assert_eq!(manifest.value.package.name, None);
+        assert_eq!(manifest.value.package.version.as_ref().map(|v| v.to_string()), Some("1.0.0".to_string()));
     }
 
     #[test]

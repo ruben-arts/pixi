@@ -619,7 +619,8 @@ mod test {
 
     #[test]
     fn test_missing_version() {
-        assert_snapshot!(expect_parse_failure(
+        // Version is now optional, so this should succeed
+        let result = <TomlManifest as FromTomlStr>::from_toml_str(
             r#"
         [workspace]
         name = "foo"
@@ -633,12 +634,25 @@ mod test {
         [package.build]
         backend = { name = "foobar", version = "*" }
         "#,
-        ));
+        )
+        .and_then(|manifest| {
+            manifest.into_workspace_manifest(
+                ExternalWorkspaceProperties::default(),
+                PackageDefaults::default(),
+                Some(&std::path::Path::new("")),
+            )
+        });
+        
+        assert!(result.is_ok());
+        let (_, package, _) = result.unwrap();
+        assert_eq!(package.as_ref().unwrap().package.name, Some("foo".to_string()));
+        assert_eq!(package.as_ref().unwrap().package.version, None);
     }
 
     #[test]
     fn test_missing_package_name() {
-        assert_snapshot!(expect_parse_failure(
+        // Name is now optional, so this should succeed
+        let result = <TomlManifest as FromTomlStr>::from_toml_str(
             r#"
         [workspace]
         channels = []
@@ -646,21 +660,24 @@ mod test {
         preview = ["pixi-build"]
 
         [package]
-        # Since workspace doesnt define a name we expect an error here.
+        # Name is now optional
 
         [package.build]
         backend = { name = "foobar", version = "*" }
         "#,
-        ), @r###"
-         × missing field 'name' in table
-          ╭─[pixi.toml:7:9]
-        6 │
-        7 │         [package]
-          ·         ──────────
-        8 │         # Since workspace doesnt define a name we expect an error here.
-        9 │
-          ╰────
-        "###);
+        )
+        .and_then(|manifest| {
+            manifest.into_workspace_manifest(
+                ExternalWorkspaceProperties::default(),
+                PackageDefaults::default(),
+                Some(&std::path::Path::new("")),
+            )
+        });
+        
+        assert!(result.is_ok());
+        let (_, package, _) = result.unwrap();
+        assert_eq!(package.as_ref().unwrap().package.name, None);
+        assert_eq!(package.as_ref().unwrap().package.version, None);
     }
 
     #[test]

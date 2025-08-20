@@ -172,8 +172,8 @@ pub fn to_project_model_v1(
     channel_config: &ChannelConfig,
 ) -> Result<pbt::ProjectModelV1, SpecConversionError> {
     let project = pbt::ProjectModelV1 {
-        name: manifest.package.name.clone(),
-        version: Some(manifest.package.version.clone()),
+        name: manifest.package.name.clone().ok_or(SpecConversionError::MissingName)?,
+        version: manifest.package.version.clone(),
         description: manifest.package.description.clone(),
         authors: manifest.package.authors.clone(),
         license: manifest.package.license.clone(),
@@ -244,8 +244,8 @@ pub fn to_project_model_v2(
     channel_config: &ChannelConfig,
 ) -> Result<pbt::ProjectModelV2, SpecConversionError> {
     let project = pbt::ProjectModelV2 {
-        name: Some(manifest.package.name.clone()),
-        version: Some(manifest.package.version.clone()),
+        name: manifest.package.name.clone(),
+        version: manifest.package.version.clone(),
         description: manifest.package.description.clone(),
         authors: manifest.package.authors.clone(),
         license: manifest.package.license.clone(),
@@ -282,7 +282,7 @@ pub fn compute_project_model_hash_v2(project_model: &pbt::ProjectModelV2) -> Vec
 mod tests {
     use std::path::PathBuf;
 
-    use pixi_build_types::VersionedProjectModel;
+    use pixi_build_types::{TargetsV2, VersionedProjectModel};
     use rattler_conda_types::ChannelConfig;
     use rstest::rstest;
 
@@ -297,43 +297,49 @@ mod tests {
     /// this makes insta use the name of the function as the snapshot name
     /// instead of this generic name
     macro_rules! snapshot_test {
-        ($manifest_path:expr) => {{
-            use std::ffi::OsStr;
+    (v1, $manifest_path:expr) => {
+        snapshot_test!(super::to_project_model_v1, $manifest_path)
+    };
+    (v2, $manifest_path:expr) => {
+        snapshot_test!(super::to_project_model_v2, $manifest_path)
+    };
+    ($to_model:path, $manifest_path:expr) => {{
+        use std::ffi::OsStr;
 
-            let manifest = pixi_manifest::Manifests::from_workspace_manifest_path($manifest_path)
-                .expect("could not load manifest")
-                .value;
-            if let Some(package_manifest) = manifest.package {
-                // To create different snapshot files for the same function
-                let name = package_manifest
-                    .provenance
-                    .path
-                    .parent()
+        let manifest = pixi_manifest::Manifests::from_workspace_manifest_path($manifest_path)
+            .expect("could not load manifest")
+            .value;
+
+        if let Some(package_manifest) = manifest.package {
+            let name = package_manifest
+                .provenance
+                .path
+                .parent()
+                .unwrap()
+                .file_name()
+                .and_then(OsStr::to_str)
+                .unwrap();
+
+            let project_model: VersionedProjectModel =
+                $to_model(&package_manifest.value, &some_channel_config())
                     .unwrap()
-                    .file_name()
-                    .and_then(OsStr::to_str)
-                    .unwrap();
+                    .into();
 
-                // Convert the manifest to the project model
-                let project_model: VersionedProjectModel =
-                    super::to_project_model_v1(&package_manifest.value, &some_channel_config())
-                        .unwrap()
-                        .into();
-                let mut settings = insta::Settings::clone_current();
-                settings.set_snapshot_suffix(name);
-                settings.bind(|| {
-                    insta::assert_json_snapshot!(project_model);
-                });
-            }
-        }};
-    }
+            let mut settings = insta::Settings::clone_current();
+            settings.set_snapshot_suffix(name);
+            settings.bind(|| {
+                insta::assert_json_snapshot!(project_model);
+            });
+        }
+    }};
+}
 
     #[rstest]
     #[test]
     fn test_conversions_v1_examples(
         #[files("../../examples/pixi-build/*/pixi.toml")] manifest_path: PathBuf,
     ) {
-        snapshot_test!(manifest_path);
+        snapshot_test!(v1, manifest_path);
     }
 
     #[rstest]
@@ -342,6 +348,16 @@ mod tests {
         #[files("../../docs/source_files/pixi_workspaces/pixi_build/*/pixi.toml")]
         manifest_path: PathBuf,
     ) {
-        snapshot_test!(manifest_path);
+        snapshot_test!(v1, manifest_path);
     }
+
+    #[rstest]
+    #[test]
+    fn test_conversions_v2_docs(
+        #[files("../../docs/source_files/pixi_workspaces/pixi_build/*/pixi.toml")]
+        manifest_path: PathBuf,
+    ) {
+        snapshot_test!(v2, manifest_path);
+    }
+
 }
