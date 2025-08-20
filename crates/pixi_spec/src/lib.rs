@@ -48,7 +48,7 @@ pub enum SpecConversionError {
     /// Encountered an invalid channel url or path
     #[error("the channel '{0}' could not be resolved")]
     InvalidChannel(String, #[source] ParseChannelError),
-    
+
     /// Package is missing a name
     #[error("the package is missing a name")]
     MissingName,

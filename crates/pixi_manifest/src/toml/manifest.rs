@@ -642,10 +642,13 @@ mod test {
                 Some(&std::path::Path::new("")),
             )
         });
-        
+
         assert!(result.is_ok());
         let (_, package, _) = result.unwrap();
-        assert_eq!(package.as_ref().unwrap().package.name, Some("foo".to_string()));
+        assert_eq!(
+            package.as_ref().unwrap().package.name,
+            Some("foo".to_string())
+        );
         assert_eq!(package.as_ref().unwrap().package.version, None);
     }
 
@@ -673,7 +676,7 @@ mod test {
                 Some(&std::path::Path::new("")),
             )
         });
-        
+
         assert!(result.is_ok());
         let (_, package, _) = result.unwrap();
         assert_eq!(package.as_ref().unwrap().package.name, None);

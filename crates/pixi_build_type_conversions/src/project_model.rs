@@ -172,7 +172,11 @@ pub fn to_project_model_v1(
     channel_config: &ChannelConfig,
 ) -> Result<pbt::ProjectModelV1, SpecConversionError> {
     let project = pbt::ProjectModelV1 {
-        name: manifest.package.name.clone().ok_or(SpecConversionError::MissingName)?,
+        name: manifest
+            .package
+            .name
+            .clone()
+            .ok_or(SpecConversionError::MissingName)?,
         version: manifest.package.version.clone(),
         description: manifest.package.description.clone(),
         authors: manifest.package.authors.clone(),
@@ -297,42 +301,42 @@ mod tests {
     /// this makes insta use the name of the function as the snapshot name
     /// instead of this generic name
     macro_rules! snapshot_test {
-    (v1, $manifest_path:expr) => {
-        snapshot_test!(super::to_project_model_v1, $manifest_path)
-    };
-    (v2, $manifest_path:expr) => {
-        snapshot_test!(super::to_project_model_v2, $manifest_path)
-    };
-    ($to_model:path, $manifest_path:expr) => {{
-        use std::ffi::OsStr;
+        (v1, $manifest_path:expr) => {
+            snapshot_test!(super::to_project_model_v1, $manifest_path)
+        };
+        (v2, $manifest_path:expr) => {
+            snapshot_test!(super::to_project_model_v2, $manifest_path)
+        };
+        ($to_model:path, $manifest_path:expr) => {{
+            use std::ffi::OsStr;
 
-        let manifest = pixi_manifest::Manifests::from_workspace_manifest_path($manifest_path)
-            .expect("could not load manifest")
-            .value;
+            let manifest = pixi_manifest::Manifests::from_workspace_manifest_path($manifest_path)
+                .expect("could not load manifest")
+                .value;
 
-        if let Some(package_manifest) = manifest.package {
-            let name = package_manifest
-                .provenance
-                .path
-                .parent()
-                .unwrap()
-                .file_name()
-                .and_then(OsStr::to_str)
-                .unwrap();
-
-            let project_model: VersionedProjectModel =
-                $to_model(&package_manifest.value, &some_channel_config())
+            if let Some(package_manifest) = manifest.package {
+                let name = package_manifest
+                    .provenance
+                    .path
+                    .parent()
                     .unwrap()
-                    .into();
+                    .file_name()
+                    .and_then(OsStr::to_str)
+                    .unwrap();
 
-            let mut settings = insta::Settings::clone_current();
-            settings.set_snapshot_suffix(name);
-            settings.bind(|| {
-                insta::assert_json_snapshot!(project_model);
-            });
-        }
-    }};
-}
+                let project_model: VersionedProjectModel =
+                    $to_model(&package_manifest.value, &some_channel_config())
+                        .unwrap()
+                        .into();
+
+                let mut settings = insta::Settings::clone_current();
+                settings.set_snapshot_suffix(name);
+                settings.bind(|| {
+                    insta::assert_json_snapshot!(project_model);
+                });
+            }
+        }};
+    }
 
     #[rstest]
     #[test]
@@ -359,5 +363,4 @@ mod tests {
     ) {
         snapshot_test!(v2, manifest_path);
     }
-
 }

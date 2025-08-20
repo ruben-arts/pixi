@@ -603,8 +603,19 @@ mod test {
                 None,
             )
             .unwrap();
-        assert_eq!(manifest.value.package.name, Some("workspace-name".to_string()));
-        assert_eq!(manifest.value.package.version.as_ref().map(|v| v.to_string()), Some("1.0.0".to_string()));
+        assert_eq!(
+            manifest.value.package.name,
+            Some("workspace-name".to_string())
+        );
+        assert_eq!(
+            manifest
+                .value
+                .package
+                .version
+                .as_ref()
+                .map(|v| v.to_string()),
+            Some("1.0.0".to_string())
+        );
         assert_eq!(
             manifest.value.package.description,
             Some("Package description".to_string())
@@ -650,7 +661,15 @@ mod test {
             .unwrap();
         // Name should now be None since it's optional
         assert_eq!(manifest.value.package.name, None);
-        assert_eq!(manifest.value.package.version.as_ref().map(|v| v.to_string()), Some("1.0.0".to_string()));
+        assert_eq!(
+            manifest
+                .value
+                .package
+                .version
+                .as_ref()
+                .map(|v| v.to_string()),
+            Some("1.0.0".to_string())
+        );
     }
 
     #[test]
@@ -682,8 +701,19 @@ mod test {
                 None,
             )
             .unwrap();
-        assert_eq!(manifest.value.package.name, Some("workspace-name".to_string()));
-        assert_eq!(manifest.value.package.version.as_ref().map(|v| v.to_string()), Some("2.0.0".to_string()));
+        assert_eq!(
+            manifest.value.package.name,
+            Some("workspace-name".to_string())
+        );
+        assert_eq!(
+            manifest
+                .value
+                .package
+                .version
+                .as_ref()
+                .map(|v| v.to_string()),
+            Some("2.0.0".to_string())
+        );
         assert_eq!(
             manifest.value.package.description,
             Some("Workspace description".to_string())
@@ -773,8 +803,19 @@ mod test {
             .into_manifest(workspace, package_defaults, &Preview::default(), None)
             .unwrap();
         // Should use package defaults for name and version
-        assert_eq!(manifest.value.package.name, Some("default-name".to_string()));
-        assert_eq!(manifest.value.package.version.as_ref().map(|v| v.to_string()), Some("2.0.0".to_string()));
+        assert_eq!(
+            manifest.value.package.name,
+            Some("default-name".to_string())
+        );
+        assert_eq!(
+            manifest
+                .value
+                .package
+                .version
+                .as_ref()
+                .map(|v| v.to_string()),
+            Some("2.0.0".to_string())
+        );
         // Should use direct value for description
         assert_eq!(
             manifest.value.package.description,
@@ -814,8 +855,19 @@ mod test {
             .into_manifest(workspace, package_defaults, &Preview::default(), None)
             .unwrap();
         // Should use workspace values for name and version (overrides defaults)
-        assert_eq!(manifest.value.package.name, Some("workspace-name".to_string()));
-        assert_eq!(manifest.value.package.version.as_ref().map(|v| v.to_string()), Some("3.0.0".to_string()));
+        assert_eq!(
+            manifest.value.package.name,
+            Some("workspace-name".to_string())
+        );
+        assert_eq!(
+            manifest
+                .value
+                .package
+                .version
+                .as_ref()
+                .map(|v| v.to_string()),
+            Some("3.0.0".to_string())
+        );
         // Should use package defaults for description (not specified anywhere else)
         assert_eq!(
             manifest.value.package.description,
@@ -841,7 +893,15 @@ mod test {
             .unwrap();
         // Both name and version are now optional, so no error should occur
         assert_eq!(manifest.value.package.name, None);
-        assert_eq!(manifest.value.package.version.as_ref().map(|v| v.to_string()), Some("1.0.0".to_string()));
+        assert_eq!(
+            manifest
+                .value
+                .package
+                .version
+                .as_ref()
+                .map(|v| v.to_string()),
+            Some("1.0.0".to_string())
+        );
     }
 
     #[test]
