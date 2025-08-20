@@ -187,9 +187,94 @@ pub fn to_project_model_v1(
     Ok(project)
 }
 
+
+/// Converts a [`PackageTarget`] to a [`pbt::TargetV2`].
+fn to_target_v2(
+    target: &PackageTarget,
+    channel_config: &ChannelConfig,
+) -> Result<pbt::TargetV2, SpecConversionError> {
+    Ok(pbt::TargetV2 {
+        host_dependencies: Some(
+            target
+                .host_dependencies()
+                .map(|deps| to_pbt_dependencies(deps.iter(), channel_config))
+                .transpose()?
+                .unwrap_or_default(),
+        ),
+        build_dependencies: Some(
+            target
+                .build_dependencies()
+                .map(|deps| to_pbt_dependencies(deps.iter(), channel_config))
+                .transpose()?
+                .unwrap_or_default(),
+        ),
+        run_dependencies: Some(
+            target
+                .run_dependencies()
+                .map(|deps| to_pbt_dependencies(deps.iter(), channel_config))
+                .transpose()?
+                .unwrap_or_default(),
+        ),
+        constraints: Some(OrderMap::new()), // TODO: Add constraints when manifest supports them
+    })
+}
+
+
+fn to_targets_v2(
+    targets: &Targets<PackageTarget>,
+    channel_config: &ChannelConfig,
+) -> Result<pbt::TargetsV2, SpecConversionError> {
+    let selected_targets = targets
+        .iter()
+        .filter_map(|(k, v)| {
+            v.map(|selector| {
+                to_target_v2(k, channel_config)
+                    .map(|target| (to_target_selector_v1(selector), target))
+            })
+        })
+        .collect::<Result<OrderMap<pbt::TargetSelectorV1, pbt::TargetV2>, _>>()?;
+
+    Ok(pbt::TargetsV2 {
+        default_target: Some(to_target_v2(targets.default(), channel_config)?),
+        targets: Some(selected_targets),
+    })
+}
+
+/// Converts a [`PackageManifest`] to a [`pbt::ProjectModelV2`].
+pub fn to_project_model_v2(
+    manifest: &PackageManifest,
+    channel_config: &ChannelConfig,
+) -> Result<pbt::ProjectModelV2, SpecConversionError> {
+    let project = pbt::ProjectModelV2 {
+        name: Some(manifest.package.name.clone()),
+        version: Some(manifest.package.version.clone()),
+        description: manifest.package.description.clone(),
+        authors: manifest.package.authors.clone(),
+        license: manifest.package.license.clone(),
+        license_file: manifest.package.license_file.clone(),
+        readme: manifest.package.readme.clone(),
+        homepage: manifest.package.homepage.clone(),
+        repository: manifest.package.repository.clone(),
+        documentation: manifest.package.documentation.clone(),
+        build: None, // TODO: Add when manifest supports build string
+        build_number: None, // TODO: Add when manifest supports build number
+        purls: None, // TODO: Add when manifest supports PURLs
+        targets: Some(to_targets_v2(&manifest.targets, channel_config)?),
+    };
+    Ok(project)
+}
+
 /// This function is used to calculate a stable hash for the project model
 /// This is used to trigger cache invalidation if the project model changes
 pub fn compute_project_model_hash(project_model: &ProjectModelV1) -> Vec<u8> {
+    let mut hasher = Xxh3::new();
+    project_model.hash(&mut hasher);
+    hasher.finish().to_ne_bytes().to_vec()
+}
+
+/// This function is used to calculate a stable hash for the project model V2
+/// This is used to trigger cache invalidation if the project model changes
+pub fn compute_project_model_hash_v2(project_model: &pbt::ProjectModelV2) -> Vec<u8> {
     let mut hasher = Xxh3::new();
     project_model.hash(&mut hasher);
     hasher.finish().to_ne_bytes().to_vec()

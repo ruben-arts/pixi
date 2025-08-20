@@ -19,9 +19,9 @@
 //! When making a change to one of the types, be sure to add another enum
 //! declaration if it is breaking.
 use std::{convert::Infallible, fmt::Display, hash::Hash, path::PathBuf, str::FromStr};
-
+use std::collections::BTreeSet;
 use ordermap::OrderMap;
-use rattler_conda_types::{BuildNumberSpec, StringMatcher, Version, VersionSpec};
+use rattler_conda_types::{BuildNumber, BuildNumberSpec, PackageUrl, StringMatcher, Version, VersionSpec};
 use rattler_digest::{Md5, Md5Hash, Sha256, Sha256Hash, serde::SerializableHash};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, DisplayFromStr, SerializeDisplay, serde_as};
@@ -37,6 +37,9 @@ pub enum VersionedProjectModel {
     /// Version 1 of the project model.
     #[serde(rename = "1")]
     V1(ProjectModelV1),
+    /// Version 2 of the project model.
+    #[serde(rename = "2")]
+    V2(ProjectModelV2),
     // When adding don't forget to update the highest_version function
 }
 
@@ -44,15 +47,14 @@ impl VersionedProjectModel {
     /// Highest version of the project model.
     pub fn highest_version() -> u32 {
         // increase this when adding a new version
-        1
+        2
     }
 
     /// Move into the v1 type, returns None if the version is not v1.
     pub fn into_v1(self) -> Option<ProjectModelV1> {
         match self {
             VersionedProjectModel::V1(v) => Some(v),
-            // Add this once we have more versions
-            //_ => None,
+            _ => None,
         }
     }
 
@@ -61,8 +63,24 @@ impl VersionedProjectModel {
     pub fn as_v1(&self) -> Option<&ProjectModelV1> {
         match self {
             VersionedProjectModel::V1(v) => Some(v),
-            // Add this once we have more versions
-            //_ => None,
+            _ => None,
+        }
+    }
+
+    /// Move into the v2 type, returns None if the version is not v2.
+    pub fn into_v2(self) -> Option<ProjectModelV2> {
+        match self {
+            VersionedProjectModel::V2(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// Returns a reference to the v2 type, returns None if the version is not
+    /// v2.
+    pub fn as_v2(&self) -> Option<&ProjectModelV2> {
+        match self {
+            VersionedProjectModel::V2(v) => Some(v),
+            _ => None,
         }
     }
 }
@@ -111,6 +129,59 @@ pub struct ProjectModelV1 {
 impl From<ProjectModelV1> for VersionedProjectModel {
     fn from(value: ProjectModelV1) -> Self {
         VersionedProjectModel::V1(value)
+    }
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectModelV2 {
+    /// The name of the project
+    pub name: Option<String>,
+
+    /// The version of the project
+    pub version: Option<Version>,
+
+    /// An optional project description
+    pub description: Option<String>,
+
+    /// Optional authors
+    pub authors: Option<Vec<String>>,
+
+    /// The license as a valid SPDX string (e.g. MIT AND Apache-2.0)
+    pub license: Option<String>,
+
+    /// The license file (relative to the project root)
+    pub license_file: Option<PathBuf>,
+
+    /// Path to the README file of the project (relative to the project root)
+    pub readme: Option<PathBuf>,
+
+    /// URL of the project homepage
+    pub homepage: Option<Url>,
+
+    /// URL of the project source repository
+    pub repository: Option<Url>,
+
+    /// URL of the project documentation
+    pub documentation: Option<Url>,
+
+    /// The build string for this project
+    pub build: Option<String>,
+
+    /// The build number for this project
+    pub build_number: Option<BuildNumber>,
+
+    /// Package URLs (PURLs) for external package identification
+    pub purls: Option<BTreeSet<PackageUrl>>,
+
+    /// The target of the project, this may contain
+    /// platform specific configurations.
+    pub targets: Option<TargetsV2>,
+}
+
+impl From<ProjectModelV2> for VersionedProjectModel {
+    fn from(value: ProjectModelV2) -> Self {
+        VersionedProjectModel::V2(value)
     }
 }
 
@@ -190,6 +261,18 @@ impl<T: IsDefault> IsDefault for Option<T> {
     }
 }
 
+impl IsDefault for u64 {
+    fn is_default(&self) -> bool {
+        *self == 0
+    }
+}
+
+impl<T> IsDefault for BTreeSet<T> {
+    fn is_default(&self) -> bool {
+        self.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct TargetV1 {
@@ -224,6 +307,75 @@ impl IsDefault for TargetV1 {
     }
 }
 
+/// A collection of targets including a default target for V2.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetsV2 {
+    pub default_target: Option<TargetV2>,
+
+    /// We use an [`OrderMap`] to preserve the order in which the items where
+    /// defined in the manifest.
+    pub targets: Option<OrderMap<TargetSelectorV1, TargetV2>>,
+}
+
+impl TargetsV2 {
+    /// Check if this targets struct is effectively empty (contains no
+    /// meaningful data that should affect the hash).
+    pub fn is_empty(&self) -> bool {
+        let has_meaningless_default_target =
+            self.default_target.as_ref().is_none_or(|t| t.is_empty());
+        let has_only_empty_targets = self.targets.as_ref().is_none_or(|t| t.is_empty());
+
+        has_meaningless_default_target && has_only_empty_targets
+    }
+}
+
+impl IsDefault for TargetsV2 {
+    fn is_default(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TargetV2 {
+    /// Host dependencies of the package
+    pub host_dependencies: Option<OrderMap<SourcePackageName, PackageSpecV1>>,
+
+    /// Build dependencies of the package
+    pub build_dependencies: Option<OrderMap<SourcePackageName, PackageSpecV1>>,
+
+    /// Run dependencies of the package
+    pub run_dependencies: Option<OrderMap<SourcePackageName, PackageSpecV1>>,
+
+    /// Constraints for this package
+    pub constraints: Option<OrderMap<SourcePackageName, PackageSpecV1>>,
+    
+    // TODO: Add run exports
+}
+
+impl TargetV2 {
+    /// Check if this target is effectively empty (contains no meaningful data
+    /// that should affect the hash).
+    pub fn is_empty(&self) -> bool {
+        let has_no_build_deps = self
+            .build_dependencies
+            .as_ref()
+            .is_none_or(|d| d.is_empty());
+        let has_no_host_deps = self.host_dependencies.as_ref().is_none_or(|d| d.is_empty());
+        let has_no_run_deps = self.run_dependencies.as_ref().is_none_or(|d| d.is_empty());
+        let has_no_constraints = self.constraints.as_ref().is_none_or(|d| d.is_empty());
+
+        has_no_build_deps && has_no_host_deps && has_no_run_deps && has_no_constraints
+    }
+}
+
+impl IsDefault for TargetV2 {
+    fn is_default(&self) -> bool {
+        self.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum PackageSpecV1 {
@@ -232,6 +384,7 @@ pub enum PackageSpecV1 {
     /// This is a dependency on a source package
     Source(SourcePackageSpecV1),
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -625,6 +778,88 @@ impl Hash for BinaryPackageSpecV1 {
             .finish(state);
     }
 }
+
+// Custom Hash implementations for V2 types
+impl Hash for ProjectModelV2 {
+    /// Custom hash implementation using StableHashBuilder to ensure different
+    /// field configurations produce different hashes while maintaining
+    /// forward/backward compatibility.
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let ProjectModelV2 {
+            name,
+            version,
+            description,
+            authors,
+            license,
+            license_file,
+            readme,
+            homepage,
+            repository,
+            documentation,
+            build,
+            build_number,
+            purls,
+            targets,
+        } = self;
+
+        StableHashBuilder::<H>::new()
+            .field("authors", authors)
+            .field("build", build)
+            .field("build_number", build_number)
+            .field("description", description)
+            .field("documentation", documentation)
+            .field("homepage", homepage)
+            .field("license", license)
+            .field("license_file", license_file)
+            .field("name", name)
+            .field("purls", purls)
+            .field("readme", readme)
+            .field("repository", repository)
+            .field("targets", targets)
+            .field("version", version)
+            .finish(state);
+    }
+}
+
+
+impl Hash for TargetsV2 {
+    /// Custom hash implementation using StableHashBuilder to ensure different
+    /// field configurations produce different hashes while maintaining
+    /// forward/backward compatibility.
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let TargetsV2 {
+            default_target,
+            targets,
+        } = self;
+
+        StableHashBuilder::<H>::new()
+            .field("default_target", default_target)
+            .field("targets", targets)
+            .finish(state);
+    }
+}
+
+impl Hash for TargetV2 {
+    /// Custom hash implementation using StableHashBuilder to ensure different
+    /// field configurations produce different hashes while maintaining
+    /// forward/backward compatibility.
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let TargetV2 {
+            build_dependencies,
+            host_dependencies,
+            run_dependencies,
+            constraints,
+        } = self;
+
+        StableHashBuilder::<H>::new()
+            .field("build_dependencies", build_dependencies)
+            .field("constraints", constraints)
+            .field("host_dependencies", host_dependencies)
+            .field("run_dependencies", run_dependencies)
+            .finish(state);
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

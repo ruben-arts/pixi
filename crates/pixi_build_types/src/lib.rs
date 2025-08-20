@@ -14,7 +14,7 @@ pub use channel_configuration::ChannelConfiguration;
 pub use conda_package_metadata::CondaPackageMetadata;
 pub use project_model::{
     BinaryPackageSpecV1, GitReferenceV1, GitSpecV1, NamedSpecV1, PackageSpecV1, PathSpecV1,
-    ProjectModelV1, SourcePackageName, SourcePackageSpecV1, TargetSelectorV1, TargetV1, TargetsV1,
+    ProjectModelV1, ProjectModelV2, SourcePackageName, SourcePackageSpecV1, TargetSelectorV1, TargetV1, TargetV2, TargetsV1, TargetsV2,
     UrlSpecV1, VersionedProjectModel,
 };
 use rattler_conda_types::{
@@ -83,6 +83,7 @@ impl PixiBuildApiVersion {
             1 => BackendCapabilities {
                 provides_conda_outputs: Some(true),
                 provides_conda_build_v1: Some(true),
+                highest_supported_project_model: Some(2),
                 ..Self(0).expected_backend_capabilities()
             },
             _ => BackendCapabilities::default(),
