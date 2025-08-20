@@ -41,6 +41,16 @@ impl TopLevelProgress {
     /// Construct a new top level progress reporter. All progress bars created
     /// by this instance are placed relative to the `anchor_pb`.
     pub fn new(multi_progress: MultiProgress, anchor_pb: ProgressBar) -> Self {
+        Self::new_with_build_output(multi_progress, anchor_pb, false)
+    }
+
+    /// Construct a new top level progress reporter with the option to force build output.
+    /// All progress bars created by this instance are placed relative to the `anchor_pb`.
+    pub fn new_with_build_output(
+        multi_progress: MultiProgress,
+        anchor_pb: ProgressBar,
+        force_build_output: bool,
+    ) -> Self {
         let repodata_reporter = RepodataReporter::new(
             multi_progress.clone(),
             pixi_progress::ProgressBarPlacement::Before(anchor_pb.clone()),
@@ -54,6 +64,7 @@ impl TopLevelProgress {
         let install_reporter = SyncReporter::new(
             multi_progress.clone(),
             pixi_progress::ProgressBarPlacement::Before(anchor_pb.clone()),
+            force_build_output,
         );
         let source_checkout_reporter =
             GitCheckoutProgress::new(multi_progress.clone(), anchor_pb.clone());

@@ -66,7 +66,11 @@ pub async fn execute(args: Args) -> miette::Result<()> {
     let command_dispatcher = workspace
         .command_dispatcher_builder()?
         .with_cache_dirs(cache_dirs)
-        .with_reporter(TopLevelProgress::new(multi_progress, anchor_pb))
+        .with_reporter(TopLevelProgress::new_with_build_output(
+            multi_progress,
+            anchor_pb,
+            true,
+        ))
         .finish();
 
     // Determine the variant configuration for the build.

@@ -23,12 +23,14 @@ use crate::{
 pub struct SyncReporter {
     multi_progress: MultiProgress,
     combined_inner: Arc<Mutex<CombinedInstallReporterInner>>,
+    force_build_output: bool,
 }
 
 impl SyncReporter {
     pub fn new(
         multi_progress: MultiProgress,
         progress_bar_placement: ProgressBarPlacement,
+        force_build_output: bool,
     ) -> Self {
         let combined_inner = Arc::new(Mutex::new(CombinedInstallReporterInner::new(
             multi_progress.clone(),
@@ -37,6 +39,7 @@ impl SyncReporter {
         Self {
             multi_progress,
             combined_inner,
+            force_build_output,
         }
     }
 
@@ -92,7 +95,8 @@ impl BackendSourceBuildReporter for SyncReporter {
         mut backend_output_stream: Box<dyn Stream<Item = String> + Unpin + Send>,
     ) {
         // Enable streaming of the logs from the backend
-        let print_backend_output = tracing::event_enabled!(tracing::Level::INFO);
+        let print_backend_output =
+            self.force_build_output || tracing::event_enabled!(tracing::Level::INFO);
         // Stream the progress of the output to the screen.
         let progress_bar = self.multi_progress.clone();
 
