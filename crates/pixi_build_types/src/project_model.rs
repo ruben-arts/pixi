@@ -18,13 +18,15 @@
 //! Only the whole ProjectModel is versioned explicitly in an enum.
 //! When making a change to one of the types, be sure to add another enum
 //! declaration if it is breaking.
-use std::{convert::Infallible, fmt::Display, hash::Hash, path::PathBuf, str::FromStr};
-use std::collections::BTreeSet;
 use ordermap::OrderMap;
-use rattler_conda_types::{BuildNumber, BuildNumberSpec, PackageUrl, StringMatcher, Version, VersionSpec};
+use rattler_conda_types::{
+    BuildNumber, BuildNumberSpec, PackageUrl, StringMatcher, Version, VersionSpec,
+};
 use rattler_digest::{Md5, Md5Hash, Sha256, Sha256Hash, serde::SerializableHash};
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, DisplayFromStr, SerializeDisplay, serde_as};
+use std::collections::BTreeSet;
+use std::{convert::Infallible, fmt::Display, hash::Hash, path::PathBuf, str::FromStr};
 use url::Url;
 
 use crate::stable_hash::{IsDefault, StableHashBuilder};
@@ -350,7 +352,6 @@ pub struct TargetV2 {
 
     /// Constraints for this package
     pub constraints: Option<OrderMap<SourcePackageName, PackageSpecV1>>,
-    
     // TODO: Add run exports
 }
 
@@ -384,7 +385,6 @@ pub enum PackageSpecV1 {
     /// This is a dependency on a source package
     Source(SourcePackageSpecV1),
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -821,7 +821,6 @@ impl Hash for ProjectModelV2 {
     }
 }
 
-
 impl Hash for TargetsV2 {
     /// Custom hash implementation using StableHashBuilder to ensure different
     /// field configurations produce different hashes while maintaining
@@ -859,7 +858,6 @@ impl Hash for TargetV2 {
             .finish(state);
     }
 }
-
 
 #[cfg(test)]
 mod tests {

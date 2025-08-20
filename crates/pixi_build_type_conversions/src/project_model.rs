@@ -187,7 +187,6 @@ pub fn to_project_model_v1(
     Ok(project)
 }
 
-
 /// Converts a [`PackageTarget`] to a [`pbt::TargetV2`].
 fn to_target_v2(
     target: &PackageTarget,
@@ -218,7 +217,6 @@ fn to_target_v2(
         constraints: Some(OrderMap::new()), // TODO: Add constraints when manifest supports them
     })
 }
-
 
 fn to_targets_v2(
     targets: &Targets<PackageTarget>,
@@ -256,9 +254,9 @@ pub fn to_project_model_v2(
         homepage: manifest.package.homepage.clone(),
         repository: manifest.package.repository.clone(),
         documentation: manifest.package.documentation.clone(),
-        build: None, // TODO: Add when manifest supports build string
+        build: None,        // TODO: Add when manifest supports build string
         build_number: None, // TODO: Add when manifest supports build number
-        purls: None, // TODO: Add when manifest supports PURLs
+        purls: None,        // TODO: Add when manifest supports PURLs
         targets: Some(to_targets_v2(&manifest.targets, channel_config)?),
     };
     Ok(project)
