@@ -50,7 +50,7 @@ pixi init --format pyproject
 pixi init --format pixi --scm gitlab
 ```
 
-## `add`
+## `add` (alias: `a`)
 
 Adds dependencies to the [manifest file](project_configuration.md).
 It will only add if the package with its version constraint is able to work with rest of the dependencies in the project.
@@ -133,7 +133,7 @@ pixi add --pypi "project@file:///absolute/path/to/project" --editable # (17)!
         Python, Rust, Julia, GCC, GXX, GFortran, NodeJS, Deno, R, R-Base, Perl
 
 
-## `install`
+## `install` (alias: `i`)
 
 Installs an environment based on the [manifest file](project_configuration.md).
 If there is no `pixi.lock` file or it is not up-to-date with the [manifest file](project_configuration.md), it will (re-)generate the lock file.
@@ -216,7 +216,7 @@ pixi upgrade --json
 pixi upgrade --dry-run
 ```
 
-## `run`
+## `run` (alias: `r`)
 
 The `run` commands first checks if the environment is ready to use.
 When you didn't run `pixi install` the run command will do that for you.
@@ -285,7 +285,7 @@ pixi run --clean-env "echo \$PATH"
         pixi run start
         ```
 
-## `exec`
+## `exec` (alias: `x`)
 
 Runs a command in a temporary environment disconnected from any project.
 This can be useful to quickly test out a certain package or version.
@@ -319,7 +319,7 @@ pixi exec -s ipython -s py-rattler ipython
 pixi exec --force-reinstall -s ipython -s py-rattler ipython
 ```
 
-## `remove`
+## `remove` (alias: `rm`)
 
 Removes dependencies from the [manifest file](project_configuration.md).
 
@@ -473,7 +473,7 @@ pixi task list --environment cuda
 pixi task list --summary
 ```
 
-## `list`
+## `list` (alias: `ls`)
 
 List project's packages. Highlighted packages are explicit dependencies.
 
@@ -535,7 +535,7 @@ Output will look like this, where `python` will be green as it is the package th
  xz                5.2.6       h166bdaf_0          408.6 KiB  conda  xz-5.2.6-h166bdaf_0.tar.bz2
 ```
 
-## `tree`
+## `tree` (alias: `t`)
 
 Display the project's packages in a tree. Highlighted packages are those specified in the manifest.
 
@@ -653,7 +653,7 @@ yaml v0.2.5
     └── pre-commit v3.3.3
 ```
 
-## `shell`
+## `shell` (alias: `s`)
 
 This command starts a new shell in the project's environment.
 To exit the pixi shell, simply run `exit`.
@@ -957,7 +957,7 @@ pixi config unset --global mirrors
 pixi config unset repodata-config.disable-zstd --system
 ```
 
-## `global`
+## `global` (alias: `g`)
 
 Global is the main entry point for the part of pixi that executes on the global(system) level.
 All commands in this section are used to manage global installations of packages and environments through the global manifest.

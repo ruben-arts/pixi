@@ -354,9 +354,9 @@ impl<'de> Deserialize<'de> for ExposedName {
     }
 }
 
-/// Represents an error that occurs when parsing an binary exposed name.
+/// Represents an error that occurs when parsing an exposed name.
 ///
-/// This error is returned when a string fails to be parsed as an environment name.
+/// This error is returned when a string fails to be parsed as an exposed name.
 #[derive(Debug, Clone, Error, Diagnostic, PartialEq)]
 #[error("pixi is not allowed as exposed name in the map")]
 pub struct ParseExposedKeyError {}
