@@ -1,0 +1,32 @@
+# Simple package example
+context:
+  name: pixi-build-variant-files
+  version: "0.1.0"
+
+package:
+  name: ${{ name }}
+  version: ${{ version }}
+
+source:
+  path: .
+
+build:
+  noarch: python
+  script: |
+    echo "Building ${{ name }} version ${{ version }}"
+    touch ${{ name }}-${{ version }}.txt
+
+requirements:
+  host:
+    - python
+  run:
+    - python
+    - boltons
+
+about:
+  homepage: https://example.com/pixi-build-variant-files
+  license: MIT
+  summary: A simple package example using pixi-build with variant files
+  description: |
+    This is a simple example package to demonstrate the use of pixi-build with variant files.
+    It creates a text file during the build process.

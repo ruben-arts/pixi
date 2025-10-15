@@ -1,0 +1,36 @@
+[workspace]
+channels = ["https://prefix.dev/conda-forge"]
+platforms = ["osx-arm64", "win-64", "linux-64", "osx-64"]
+preview = ["pixi-build"]
+# Toggling this creates a build error currently
+# Error:   × IO Error: failed to create directory `/Users/rubenarts/dev/pixi/examples/pixi-build/variant-files/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-
+#  │ files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/
+#  │ work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/
+#  │ work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-
+#  │ variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-
+#  │ 007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/metadata-v0`: File name too long (os error 63)
+#  ╰─▶   × failed to create directory `/Users/rubenarts/dev/pixi/examples/pixi-build/variant-files/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-
+#        │ variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-
+#        │ variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-
+#        │ variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-
+#        │ variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-
+#        │ variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/work/pixi-build-variant-files-007Gmp9gnHQ/work/.pixi/build/metadata-v0`: File
+#        │ name too long (os error 63)
+
+# Reproducer:
+# rm -rf .pixi
+# pixi build
+# # Throws error about too long file names
+# pixi install
+# # Works fine
+# pixi build
+# # Works fine
+build-variants-files = ["conda_build_config.yaml"]
+
+
+[package.build.backend]
+name = "pixi-build-rattler-build"
+version = "*"
+
+[dependencies]
+pixi-build-variant-files = { path = "." }
