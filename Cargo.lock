@@ -4615,6 +4615,7 @@ dependencies = [
  "pixi_manifest",
  "pixi_utils",
  "rattler_conda_types",
+ "rattler_lock",
  "same-file",
  "serde",
  "tempfile",

@@ -22,6 +22,7 @@ pixi_core = { workspace = true }
 pixi_manifest = { workspace = true }
 pixi_utils = { workspace = true }
 rattler_conda_types = { workspace = true }
+rattler_lock.workspace = true
 same-file = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 tempfile = { workspace = true }

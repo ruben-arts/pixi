@@ -6,5 +6,8 @@ pub use reinstall::ReinstallOptions;
 
 pub(crate) mod task;
 
+pub(crate) mod list;
+pub use list::{ListPackagesOptions, Package, PackageKind};
+
 #[allow(clippy::module_inception)]
 pub(crate) mod workspace;
