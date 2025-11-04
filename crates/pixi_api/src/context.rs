@@ -7,7 +7,7 @@ use pixi_manifest::{EnvironmentName, FeatureName, Task, TaskName};
 use rattler_conda_types::Platform;
 
 use crate::interface::Interface;
-use crate::workspace::{InitOptions, ReinstallOptions};
+use crate::workspace::{InitOptions, ListPackagesOptions, Package, ReinstallOptions};
 
 pub struct WorkspaceContext<I: Interface> {
     interface: I,
@@ -47,6 +47,13 @@ impl<I: Interface> WorkspaceContext<I> {
         environment: Option<EnvironmentName>,
     ) -> miette::Result<HashMap<EnvironmentName, HashMap<TaskName, Task>>> {
         crate::workspace::task::list_tasks(&self.interface, &self.workspace, environment).await
+    }
+
+    pub async fn list_packages(
+        &self,
+        options: ListPackagesOptions,
+    ) -> miette::Result<Vec<Package>> {
+        crate::workspace::list::list_packages(&self.interface, &self.workspace, options).await
     }
 
     pub async fn add_task(
