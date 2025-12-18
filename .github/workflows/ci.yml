@@ -454,6 +454,7 @@ jobs:
         with:
           cache-write: ${{ github.ref == 'refs/heads/main' }}
           run-install: false
+          # TODO: Remove this as soon as the solve-group fix is merged in main.
           locked: false
       - name: "Build"
         run: pixi build
