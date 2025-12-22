@@ -12,7 +12,8 @@ regex = '''
   (?P<minor>\d+)
   \.
   (?P<patch>\d+)
-  (rc
+  (?:
+    (?:rc|dev)
     (?P<candidate>\d+)
   )?
   '''
