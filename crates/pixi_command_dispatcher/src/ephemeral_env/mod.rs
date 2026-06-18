@@ -22,6 +22,7 @@ use std::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use itertools::Either;
 use miette::Diagnostic;
+use pixi_build_types::{PIXI_BUILD_API_VERSION_NAME, PIXI_BUILD_API_VERSION_SPEC};
 use pixi_compute_engine::{ComputeCtx, DataStore, Key};
 use pixi_record::PixiRecord;
 use pixi_spec::{BinarySpec, PixiSpec, ResolvedExcludeNewer};
@@ -141,6 +142,44 @@ impl EphemeralEnvKey {
     pub fn new(spec: EphemeralEnvSpec) -> Self {
         Self(Arc::new(spec))
     }
+
+    /// Returns `true` if the environment would have solved had the
+    /// `pixi-build-api-version` constraint not been applied.
+    ///
+    /// This is only consulted after the constrained solve has already
+    /// failed, to distinguish "the backend targets an API version this
+    /// pixi no longer supports" from any other solver failure.
+    ///
+    /// The constraint is seeded into the gateway query as an *input* spec,
+    /// so the gateway filters the fetched `pixi-build-api-version` records
+    /// down to the compatible ones; the backend's own dependency on an
+    /// incompatible api version is never re-queued because the package
+    /// name is already marked as seen. We therefore re-fetch the repodata
+    /// without the constraint so every candidate is visible, then re-solve.
+    async fn solves_without_api_version_constraint(
+        &self,
+        ctx: &mut ComputeCtx,
+        binary_specs: &DependencyMap<PackageName, BinarySpec>,
+        build_env: &crate::BuildEnvironment,
+    ) -> bool {
+        let mut relaxed = (*self.0).clone();
+        relaxed.constraints.remove(&*PIXI_BUILD_API_VERSION_NAME);
+
+        let Ok(relaxed_repodata) =
+            fetch_binary_repodata(ctx, &relaxed, binary_specs, build_env).await
+        else {
+            return false;
+        };
+
+        let relaxed_solve = build_solve_spec(
+            &relaxed,
+            binary_specs.clone(),
+            relaxed.constraints.clone(),
+            relaxed_repodata,
+            build_env,
+        );
+        ctx.solve_conda(relaxed_solve).await.is_ok()
+    }
 }
 
 impl Hash for EphemeralEnvKey {
@@ -192,6 +231,14 @@ pub enum EphemeralEnvError {
     #[error("failed to solve the environment")]
     Solve(#[source] Arc<SolveCondaEnvironmentError>),
 
+    #[error("could not find a version of the build backend compatible with this version of pixi")]
+    #[diagnostic(help(
+        "This version of pixi requires the build backend to depend on `{} {}`, but the requested backend only resolves against an incompatible API version.\nEither relax or remove the version constraints on the build backend so a compatible version can be selected, or downgrade pixi to a version that supports this backend's API version.",
+        PIXI_BUILD_API_VERSION_NAME.as_normalized(),
+        PIXI_BUILD_API_VERSION_SPEC.to_string()
+    ))]
+    IncompatibleApiVersion,
+
     #[error("failed to construct the prefix at {0}")]
     CreatePrefix(PathBuf, #[source] Arc<std::io::Error>),
 
@@ -242,26 +289,35 @@ impl Key for EphemeralEnvKey {
             .map_err(Arc::new)?;
 
         // 4. Build a binary-only SolveCondaEnvironmentSpec and solve.
-        let solve_spec = SolveCondaEnvironmentSpec {
-            name: None,
-            source_specs: DependencyMap::default(),
-            binary_specs,
-            constraints: spec.constraints.clone(),
-            dev_source_records: Vec::new(),
-            source_repodata: Vec::new(),
+        let solve_spec = build_solve_spec(
+            spec,
+            binary_specs.clone(),
+            spec.constraints.clone(),
             binary_repodata,
-            installed: Vec::new(),
-            platform: build_env.host_platform,
-            channels: spec.channels.clone(),
-            virtual_packages: build_env.host_virtual_packages.clone(),
-            strategy: spec.strategy,
-            channel_priority: spec.channel_priority,
-            exclude_newer: spec.exclude_newer.clone(),
+            &build_env,
+        );
+        let records = match ctx.solve_conda(solve_spec).await {
+            Ok(records) => records,
+            Err(solve_err) => {
+                // When provisioning a build backend, pixi adds a
+                // `pixi-build-api-version` constraint so the solved env
+                // matches the API version this pixi speaks. A solve that
+                // fails *because* of that constraint surfaces a cryptic
+                // resolver error, so check whether dropping the constraint
+                // would have produced a solution: if so the backend simply
+                // targets an API version this pixi no longer supports, and
+                // we can emit an actionable hint instead of the raw solver
+                // output.
+                if spec.constraints.contains_key(&*PIXI_BUILD_API_VERSION_NAME)
+                    && self
+                        .solves_without_api_version_constraint(ctx, &binary_specs, &build_env)
+                        .await
+                {
+                    return Err(Arc::new(EphemeralEnvError::IncompatibleApiVersion));
+                }
+                return Err(Arc::new(EphemeralEnvError::Solve(Arc::new(solve_err))));
+            }
         };
-        let records = ctx
-            .solve_conda(solve_spec)
-            .await
-            .map_err(|e| Arc::new(EphemeralEnvError::Solve(Arc::new(e))))?;
 
         // 5. Compute prefix path and create it. (`cache_key` and
         //    `prefix_path` were already derived above for the
@@ -418,6 +474,35 @@ async fn write_cached_marker(prefix_path: &std::path::Path, records: &[RepoDataR
         return;
     }
     let _ = tokio::fs::rename(&tmp, &dest).await;
+}
+
+/// Assemble a binary-only [`SolveCondaEnvironmentSpec`] for the ephemeral
+/// env. Split out so the regular solve and the diagnostic retry (which
+/// drops the `pixi-build-api-version` constraint) share one construction
+/// site.
+fn build_solve_spec(
+    spec: &EphemeralEnvSpec,
+    binary_specs: DependencyMap<PackageName, BinarySpec>,
+    constraints: DependencyMap<PackageName, BinarySpec>,
+    binary_repodata: Vec<RepoData>,
+    build_env: &crate::BuildEnvironment,
+) -> SolveCondaEnvironmentSpec {
+    SolveCondaEnvironmentSpec {
+        name: None,
+        source_specs: DependencyMap::default(),
+        binary_specs,
+        constraints,
+        dev_source_records: Vec::new(),
+        source_repodata: Vec::new(),
+        binary_repodata,
+        installed: Vec::new(),
+        platform: build_env.host_platform,
+        channels: spec.channels.clone(),
+        virtual_packages: build_env.host_virtual_packages.clone(),
+        strategy: spec.strategy,
+        channel_priority: spec.channel_priority,
+        exclude_newer: spec.exclude_newer.clone(),
+    }
 }
 
 /// Fetch binary repodata for the spec's dependencies + constraints.

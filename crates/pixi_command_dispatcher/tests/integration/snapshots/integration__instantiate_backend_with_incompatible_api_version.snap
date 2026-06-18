@@ -1,0 +1,7 @@
+---
+source: crates/pixi_command_dispatcher/tests/integration/main.rs
+expression: format_diagnostic(&err)
+---
+  × could not find a version of the build backend compatible with this version of pixi
+  help: This version of pixi requires the build backend to depend on `pixi-build-api-version >=5,<6`, but the requested backend only resolves against an incompatible API version.
+        Either relax or remove the version constraints on the build backend so a compatible version can be selected, or downgrade pixi to a version that supports this backend's API version.

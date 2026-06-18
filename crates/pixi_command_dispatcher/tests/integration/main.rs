@@ -340,6 +340,38 @@ pub async fn instantiate_backend_without_compatible_api_version() {
 }
 
 #[tokio::test]
+pub async fn instantiate_backend_with_incompatible_api_version() {
+    // The backend resolves fine on its own, but only against a
+    // `pixi-build-api-version` this build of pixi no longer supports. The
+    // raw solver error is cryptic, so pixi should detect the situation and
+    // hint that the user can relax the backend constraints or downgrade
+    // pixi.
+    let backend_name = PackageName::new_unchecked("backend-with-incompatible-api-version");
+    let root_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .unwrap();
+    let channel_dir = root_dir.join("tests/data/channels/channels/backend_channel_1");
+
+    let tempdir = test_tempdir();
+    let dispatcher = CommandDispatcher::builder()
+        .with_cache_dirs(default_cache_dirs().with_workspace(to_abs_dir(tempdir.path())))
+        .with_executor(Executor::Serial)
+        .finish();
+
+    let err = dispatcher
+        .instantiate_tool_environment(InstantiateToolEnvironmentSpec::new(
+            backend_name,
+            PixiSpec::any(),
+            Vec::from([Url::from_directory_path(channel_dir).unwrap().into()]),
+        ))
+        .await
+        .unwrap_err();
+
+    insta::assert_snapshot!(format_diagnostic(&err));
+}
+
+#[tokio::test]
 pub async fn instantiate_backend_with_compatible_api_version_respects_exclude_newer() {
     let backend_name = PackageName::new_unchecked("backend-with-compatible-api-version");
     let root_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
