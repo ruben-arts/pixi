@@ -35,6 +35,9 @@ impl CompletionsDir {
 
     /// Prune old completions
     pub fn prune_old_completions(&self) -> miette::Result<()> {
+        // Created lazily on the first completion we remove, so a completions
+        // directory that is already clean stays silent.
+        let mut progress: Option<pixi_progress::SpinnerBar> = None;
         for directory in [self.bash_path(), self.zsh_path(), self.fish_path()] {
             if !directory.is_dir() {
                 continue;
@@ -46,12 +49,22 @@ impl CompletionsDir {
                 if (path.is_symlink() && fs_err::read_link(&path).is_err())
                     || (!path.is_symlink() && path.is_file())
                 {
+                    let name = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    progress
+                        .get_or_insert_with(|| pixi_progress::new_spinner(""))
+                        .set_message(format!("Removing outdated completion: {name}"));
                     // Remove broken symlink
                     fs_err::remove_file(&path).into_diagnostic()?;
                 }
             }
         }
 
+        if let Some(progress) = progress {
+            progress.finish_and_clear();
+        }
         Ok(())
     }
 
@@ -82,6 +95,11 @@ impl Completion {
             source,
             destination,
         }
+    }
+
+    /// The name of the executable this completion belongs to.
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Install the shell completion

@@ -1112,7 +1112,14 @@ impl Project {
             env_name.fancy_display()
         );
 
-        state_changes |= create_executable_trampolines(&script_mapping, &prefix, env_name).await?;
+        state_changes |= pixi_progress::await_in_progress(
+            format!(
+                "Exposing executables for environment: {}",
+                env_name.fancy_display()
+            ),
+            |_pb| create_executable_trampolines(&script_mapping, &prefix, env_name),
+        )
+        .await?;
 
         Ok(state_changes)
     }
@@ -1197,6 +1204,9 @@ impl Project {
         let root_path = self.bin_dir.path();
         let mut entries = tokio_fs::read_dir(&root_path).await.into_diagnostic()?;
 
+        // Created lazily on the first broken file we remove, so a clean bin
+        // directory produces no output.
+        let mut progress: Option<pixi_progress::SpinnerBar> = None;
         while let Some(entry) = entries.next_entry().await.into_diagnostic()? {
             let path = entry.path();
             if path.is_file() && path.is_executable() && Trampoline::is_trampoline(&path).await? {
@@ -1204,11 +1214,17 @@ impl Project {
                 match Configuration::from_root_path(root_path, &exposed_name).await {
                     Ok(_) => (),
                     Err(ConfigurationParseError::ReadError(config_path, err)) => {
+                        progress
+                            .get_or_insert_with(|| pixi_progress::new_spinner(""))
+                            .set_message(format!("Removing broken executable: {exposed_name}"));
                         tracing::warn!("Couldn't read {}\n{err:?}", config_path.display());
                         tracing::warn!("Removing the trampoline at {}", path.display());
                         tokio_fs::remove_file(path).await.into_diagnostic()?;
                     }
                     Err(ConfigurationParseError::ParseError(config_path, err)) => {
+                        progress
+                            .get_or_insert_with(|| pixi_progress::new_spinner(""))
+                            .set_message(format!("Removing broken executable: {exposed_name}"));
                         tracing::warn!("Couldn't parse {}\n{err:?}", config_path.display());
                         tracing::warn!(
                             "Removing the trampoline at {} and configuration at {}",
@@ -1221,6 +1237,9 @@ impl Project {
                 }
             }
         }
+        if let Some(progress) = progress {
+            progress.finish_and_clear();
+        }
         Ok(())
     }
 
@@ -1229,6 +1248,9 @@ impl Project {
         let env_set: HashSet<&EnvironmentName> = self.environments().keys().collect();
 
         let mut state_changes = StateChanges::default();
+        // Created lazily on the first environment we actually remove, so a sync
+        // with nothing to prune stays silent.
+        let mut progress: Option<pixi_progress::SpinnerBar> = None;
         for env_path in self.env_root.directories().await? {
             let Some(Ok(env_name)) = env_path
                 .file_name()
@@ -1241,6 +1263,13 @@ impl Project {
             if !env_set.contains(&env_name) {
                 // Test if the environment directory is a conda environment
                 if let Ok(true) = env_path.join(consts::CONDA_META_DIR).try_exists() {
+                    progress
+                        .get_or_insert_with(|| pixi_progress::new_spinner(""))
+                        .set_message(format!(
+                            "Cleaning up environment: {}",
+                            env_name.fancy_display()
+                        ));
+
                     // Remove all shortcuts, using the information still available in the
                     // environment
                     state_changes |= self.remove_shortcuts(&env_name).await?;
@@ -1265,12 +1294,14 @@ impl Project {
                 }
             }
         }
+        if let Some(progress) = progress {
+            progress.finish_and_clear();
+        }
         Ok(state_changes)
     }
 
     /// Install shortcuts of a specific environment
     pub async fn sync_shortcuts(&self, env_name: &EnvironmentName) -> miette::Result<StateChanges> {
-        let mut state_changes = StateChanges::default();
         let environment = self
             .environment(env_name)
             .ok_or_else(|| miette::miette!("Environment {} not found", env_name.fancy_display()))?;
@@ -1281,55 +1312,71 @@ impl Project {
         let shortcuts = environment.shortcuts.clone().unwrap_or_default();
         let (records_to_install, records_to_uninstall) =
             shortcuts_sync_status(shortcuts, prefix_records, prefix.root())?;
+        let platform = environment.platform.unwrap_or(Platform::current());
 
-        for record in records_to_install {
-            tracing::debug!(
-                "Installing menuitems for record: {}",
-                record.name().as_normalized()
-            );
-            rattler_menuinst::install_menuitems_for_record(
-                prefix.root(),
-                &record,
-                environment.platform.unwrap_or(Platform::current()),
-                MenuMode::User,
-            )
-            .into_diagnostic()?;
+        // The spinner only draws once a menu operation actually takes a moment,
+        // so an environment whose shortcuts are already in sync stays silent.
+        pixi_progress::await_in_progress("", |pb| async move {
+            let mut state_changes = StateChanges::default();
 
-            state_changes.insert_change(
-                env_name,
-                StateChange::InstalledShortcut(
-                    record
-                        .repodata_record
-                        .package_record
-                        .name
-                        .as_normalized()
-                        .to_owned(),
-                ),
-            );
-        }
-
-        for record in records_to_uninstall {
-            tracing::debug!(
-                "Uninstalling menuitems for record: {}",
-                record.name().as_normalized()
-            );
-            rattler_menuinst::remove_menuitems_for_record(prefix.root(), record.clone())
+            for record in records_to_install {
+                pb.set_message(format!(
+                    "Installing shortcut: {}",
+                    record.name().as_normalized()
+                ));
+                tracing::debug!(
+                    "Installing menuitems for record: {}",
+                    record.name().as_normalized()
+                );
+                rattler_menuinst::install_menuitems_for_record(
+                    prefix.root(),
+                    &record,
+                    platform,
+                    MenuMode::User,
+                )
                 .into_diagnostic()?;
 
-            state_changes.insert_change(
-                env_name,
-                StateChange::UninstalledShortcut(
-                    record
-                        .repodata_record
-                        .package_record
-                        .name
-                        .as_normalized()
-                        .to_owned(),
-                ),
-            );
-        }
+                state_changes.insert_change(
+                    env_name,
+                    StateChange::InstalledShortcut(
+                        record
+                            .repodata_record
+                            .package_record
+                            .name
+                            .as_normalized()
+                            .to_owned(),
+                    ),
+                );
+            }
 
-        Ok(state_changes)
+            for record in records_to_uninstall {
+                pb.set_message(format!(
+                    "Removing shortcut: {}",
+                    record.name().as_normalized()
+                ));
+                tracing::debug!(
+                    "Uninstalling menuitems for record: {}",
+                    record.name().as_normalized()
+                );
+                rattler_menuinst::remove_menuitems_for_record(prefix.root(), record.clone())
+                    .into_diagnostic()?;
+
+                state_changes.insert_change(
+                    env_name,
+                    StateChange::UninstalledShortcut(
+                        record
+                            .repodata_record
+                            .package_record
+                            .name
+                            .as_normalized()
+                            .to_owned(),
+                    ),
+                );
+            }
+
+            Ok(state_changes)
+        })
+        .await
     }
 
     /// Remove the shortcuts from the system coming from a specific environment
@@ -1361,8 +1408,6 @@ impl Project {
         &self,
         env_name: &EnvironmentName,
     ) -> miette::Result<StateChanges> {
-        let mut state_changes = StateChanges::default();
-
         let environment = self.environment(env_name).ok_or(miette::miette!(
             "Environment {} not found in manifest.",
             env_name.fancy_display()
@@ -1385,20 +1430,32 @@ impl Project {
             )
             .await?;
 
-        for completion_to_remove in completions_to_remove {
-            let state_change = completion_to_remove.remove().await?;
-            state_changes.insert_change(env_name, state_change);
-        }
+        // The spinner only draws once linking a completion takes a moment, so an
+        // environment whose completions are already in sync stays silent.
+        pixi_progress::await_in_progress("", |pb| async move {
+            let mut state_changes = StateChanges::default();
 
-        for completion_to_add in completions_to_add {
-            let Some(state_change) = completion_to_add.install().await? else {
-                continue;
-            };
+            for completion_to_remove in completions_to_remove {
+                pb.set_message(format!(
+                    "Removing outdated completion: {}",
+                    completion_to_remove.name()
+                ));
+                let state_change = completion_to_remove.remove().await?;
+                state_changes.insert_change(env_name, state_change);
+            }
 
-            state_changes.insert_change(env_name, state_change);
-        }
+            for completion_to_add in completions_to_add {
+                pb.set_message(format!("Adding completion: {}", completion_to_add.name()));
+                let Some(state_change) = completion_to_add.install().await? else {
+                    continue;
+                };
 
-        Ok(state_changes)
+                state_changes.insert_change(env_name, state_change);
+            }
+
+            Ok(state_changes)
+        })
+        .await
     }
 
     #[cfg(not(unix))]

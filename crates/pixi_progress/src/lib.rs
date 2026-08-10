@@ -14,6 +14,10 @@ use indicatif::{HumanBytes, MultiProgress, ProgressBar, ProgressDrawTarget, Prog
 use parking_lot::Mutex;
 pub use placement::ProgressBarPlacement;
 
+/// Re-exported so callers can name the type returned by [`new_spinner`] without
+/// taking a direct dependency on `indicatif`.
+pub use indicatif::ProgressBar as SpinnerBar;
+
 /// A helper macro to print a message to the console. If a multi-progress bar
 /// is currently active, this macro will suspend the progress bar, print the
 /// message and continue the progress bar. This ensures the output does not
@@ -83,6 +87,25 @@ pub fn wrap_in_progress<T, F: FnOnce() -> T>(msg: impl Into<Cow<'static, str>>, 
     let result = func();
     pb.finish_and_clear();
     result
+}
+
+/// Creates a spinner progress bar attached to the global multi-progress with
+/// the long-running style and a steady tick already enabled.
+///
+/// Unlike [`wrap_in_progress`] and [`await_in_progress`], the caller keeps
+/// ownership of the returned [`ProgressBar`], so its message can be updated
+/// while iterating over multiple items. The caller is responsible for calling
+/// [`ProgressBar::finish_and_clear`] once the work is done.
+///
+/// Because the spinner only draws on its steady tick, work that completes
+/// faster than the tick interval never renders. This keeps quick no-op passes
+/// (such as syncing an already up-to-date environment) silent.
+pub fn new_spinner(msg: impl Into<Cow<'static, str>>) -> ProgressBar {
+    let pb = global_multi_progress().add(ProgressBar::new_spinner());
+    pb.set_style(long_running_progress_style());
+    pb.enable_steady_tick(Duration::from_millis(100));
+    pb.set_message(msg);
+    pb
 }
 
 /// Displays a spinner with the given message while running the specified
