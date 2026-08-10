@@ -1392,6 +1392,13 @@ impl Project {
 
         // Remove menu items
         for record in prefix_records {
+            // Only packages that actually installed menu items carry tracker
+            // data in `installed_system_menus`. Without this guard every package
+            // in the environment (e.g. `numpy-<version>-<build>.json`) would be
+            // reported as an uninstalled shortcut, even though it never had one.
+            if record.installed_system_menus.is_empty() {
+                continue;
+            }
             rattler_menuinst::remove_menu_items(&record.installed_system_menus)
                 .into_diagnostic()?;
             tracing::info!("Uninstalled menu items for: '{}'", record.file_name());
@@ -1879,6 +1886,56 @@ mod tests {
             .collect_vec();
 
         assert_eq!(remaining_dirs, vec!["env1", "env3", "non-conda-env-dir"]);
+    }
+
+    #[tokio::test]
+    async fn test_remove_shortcuts_ignores_packages_without_menu_items() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let env_root = EnvRoot::new(tempdir.path().to_path_buf()).unwrap();
+        let project = Project::from_str(
+            &PathBuf::from("dummy"),
+            r#"
+            [envs.test]
+            channels = ["conda-forge"]
+            [envs.test.dependencies]
+            python = "*"
+            "#,
+            env_root,
+            BinDir::new(tempdir.path().to_path_buf()).unwrap(),
+        )
+        .unwrap();
+
+        let env_name: EnvironmentName = "test".parse().unwrap();
+
+        // Populate the environment's `conda-meta` with real prefix records that
+        // do NOT carry any menuinst data (their `installed_system_menus` is
+        // empty). These stand in for ordinary packages such as `numpy` that
+        // never install a shortcut.
+        let prefix = project.environment_prefix(&env_name).await.unwrap();
+        let conda_meta = prefix.root().join(consts::CONDA_META_DIR);
+        tokio_fs::create_dir_all(&conda_meta).await.unwrap();
+        let source_dir = PathBuf::from(env!("CARGO_WORKSPACE_DIR"))
+            .join("crates/pixi_global/src/test_data/conda-meta");
+        for file_name in [
+            "python-3.12.3-hab00c5b_0_cpython.json",
+            "_r-mutex-1.0.1-anacondar_1.json",
+        ] {
+            tokio_fs::copy(source_dir.join(file_name), conda_meta.join(file_name))
+                .await
+                .unwrap();
+        }
+
+        // Sanity check: both records are picked up from the prefix.
+        assert_eq!(prefix.find_installed_packages().unwrap().len(), 2);
+
+        // Removing shortcuts must not report menu-less packages as uninstalled
+        // shortcuts. Before the guard in `remove_shortcuts`, every package in
+        // the environment was emitted as an `UninstalledShortcut`.
+        let changes = project.remove_shortcuts(&env_name).await.unwrap().changes();
+        assert!(
+            changes.is_empty(),
+            "expected no shortcut changes for menu-less packages, got: {changes:?}"
+        );
     }
 
     #[test]
