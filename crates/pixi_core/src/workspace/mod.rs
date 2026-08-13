@@ -862,6 +862,21 @@ impl Workspace {
         }
     }
 
+    /// True when this workspace is a PEP 723 script whose inline manifest does
+    /// not explicitly declare `[tool.pixi.workspace] platforms`. Such a script
+    /// has no portability intent: its environment should fit the machine it
+    /// runs on, so solves use the detected host virtual packages instead of
+    /// pixi's per-subdir defaults.
+    pub fn script_platforms_are_implicit(&self) -> bool {
+        match &self.storage {
+            WorkspaceStorage::Project => false,
+            WorkspaceStorage::Script { manifest, .. } => manifest
+                .workspace_config()
+                .map(|config| !config.platforms_explicit)
+                .unwrap_or(false),
+        }
+    }
+
     /// Returns the default environment of the project.
     pub fn default_environment(&self) -> Environment<'_> {
         Environment::new(self, self.workspace.value.default_environment())

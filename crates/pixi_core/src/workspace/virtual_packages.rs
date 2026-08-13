@@ -597,8 +597,52 @@ impl Environment<'_> {
     /// Returns the set of virtual packages to use for the specified platform.
     /// Reads them straight off `platform.declared_virtual_packages()`: the
     /// subdir baseline is materialised by [`PixiPlatform::from_subdir`], so
-    /// there is no separate "compute defaults" step.
+    /// there is no separate "compute defaults" step. The one exception is a
+    /// PEP 723 script without explicit platforms, which solves against the
+    /// detected host instead -- see [`Workspace::platform_virtual_packages`].
     pub fn virtual_packages(&self, platform: &PixiPlatform) -> Vec<VirtualPackage> {
+        self.workspace().platform_virtual_packages(platform)
+    }
+}
+
+impl crate::Workspace {
+    /// The virtual packages solves and satisfiability checks use for
+    /// `platform`.
+    ///
+    /// Normally these are the platform's declared virtual packages: for a
+    /// bare subdir platform the deterministic per-subdir defaults, for a rich
+    /// platform whatever the manifest declares. That keeps lock files
+    /// machine-independent.
+    ///
+    /// A PEP 723 script that does not declare `[tool.pixi.workspace]
+    /// platforms` is different: it has one implicit platform -- the machine
+    /// it runs on -- and its environment should fit that machine. For such a
+    /// workspace the subdir platform matching this host resolves to the
+    /// *detected* host virtual packages instead (honoring
+    /// `PIXI_OVERRIDE_PLATFORM` and `CONDA_OVERRIDE_*`), so e.g. a package
+    /// requiring `__glibc >=2.38` solves on a glibc 2.39 host even though
+    /// pixi's deterministic default is lower. Locked records are verified
+    /// against the same detected set, so the lock file only re-solves when
+    /// this machine can no longer satisfy it.
+    pub fn platform_virtual_packages(&self, platform: &PixiPlatform) -> Vec<VirtualPackage> {
+        if platform.is_subdir_platform() && self.script_platforms_are_implicit() {
+            let host = self.host_platform(
+                PlatformSource::AutoDetected,
+                PlatformOverrides::EnvironmentVariableOverrides,
+            );
+            if host.subdir() == platform.subdir() {
+                tracing::debug!(
+                    "script declares no explicit platforms; solving '{}' with the detected host virtual packages [{}]",
+                    platform.name(),
+                    host.declared_virtual_packages()
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+                return get_minimal_virtual_packages(&host);
+            }
+        }
         get_minimal_virtual_packages(platform)
     }
 }
@@ -1066,6 +1110,198 @@ packages: []
         let minimum = platform_data(Platform::Osx64, vec![]);
         let verdict = classify_run_platform(&[Platform::Linux64], &[], &resolved, &minimum);
         assert!(matches!(verdict, RunPlatformVerdict::BelowMinimum(_)));
+    }
+
+    /// Build a script workspace from PEP 723 `source` written into a temp
+    /// directory. Returns the temp dirs alongside so they outlive the
+    /// workspace.
+    fn script_workspace(source: &str) -> (tempfile::TempDir, tempfile::TempDir, crate::Workspace) {
+        let root = tempfile::tempdir().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let path = root.path().join("example.py");
+        fs_err::write(&path, source).unwrap();
+        let script = pixi_manifest::script::ScriptManifest::from_path(path)
+            .unwrap()
+            .unwrap();
+        let workspace = crate::Workspace::from_script(
+            script,
+            pixi_config::Config {
+                default_channels: vec![rattler_conda_types::NamedChannelOrUrl::Name(
+                    "testing".into(),
+                )],
+                cache: pixi_config::CacheConfig {
+                    exec_environments: Some(cache.path().to_owned()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .value;
+        (root, cache, workspace)
+    }
+
+    fn cuda_version(packages: &[VirtualPackage]) -> Option<String> {
+        packages.iter().find_map(|vp| match vp {
+            VirtualPackage::Cuda(cuda) => Some(cuda.version.to_string()),
+            _ => None,
+        })
+    }
+
+    /// A PEP 723 script without explicit platforms solves against the
+    /// *detected* host virtual packages (with `CONDA_OVERRIDE_*` applied),
+    /// not pixi's deterministic per-subdir defaults -- its environment must
+    /// fit the machine it runs on.
+    #[test]
+    fn implicit_script_platform_solves_with_detected_host() {
+        let (_root, _cache, workspace) = script_workspace(
+            "# /// script\n\
+             # dependencies = []\n\
+             # ///\n",
+        );
+        assert!(workspace.script_platforms_are_implicit());
+
+        temp_env::with_var("CONDA_OVERRIDE_CUDA", Some("12.5"), || {
+            let platform = workspace
+                .workspace
+                .value
+                .workspace
+                .platforms
+                .first()
+                .expect("a script workspace defaults to the current platform");
+            assert!(platform.is_subdir_platform());
+
+            // The environment-level accessor (the one solves go through) must
+            // agree with the detected host, cuda override included.
+            let environment = workspace.default_environment();
+            let packages = environment.virtual_packages(platform);
+            assert_eq!(
+                cuda_version(&packages).as_deref(),
+                Some("12.5"),
+                "an implicit script platform must pick up the host's (overridden) __cuda"
+            );
+
+            // The full set equals the detected host set, not the subdir defaults.
+            let host = workspace.host_platform(
+                PlatformSource::AutoDetected,
+                PlatformOverrides::EnvironmentVariableOverrides,
+            );
+            let expected: Vec<GenericVirtualPackage> = get_minimal_virtual_packages(&host)
+                .into_iter()
+                .map(GenericVirtualPackage::from)
+                .collect();
+            let actual: Vec<GenericVirtualPackage> = packages
+                .into_iter()
+                .map(GenericVirtualPackage::from)
+                .collect();
+            assert_eq!(actual, expected);
+        });
+    }
+
+    /// Declaring `platforms` in the script section opts back into the
+    /// deterministic per-subdir defaults: the host's virtual packages must
+    /// not leak into the solve.
+    #[test]
+    fn explicit_script_platforms_keep_deterministic_defaults() {
+        let current = Platform::current();
+        let (_root, _cache, workspace) = script_workspace(&format!(
+            "# /// script\n\
+             # dependencies = []\n\
+             #\n\
+             # [tool.pixi.workspace]\n\
+             # platforms = [\"{current}\"]\n\
+             # ///\n",
+        ));
+        assert!(!workspace.script_platforms_are_implicit());
+
+        temp_env::with_var("CONDA_OVERRIDE_CUDA", Some("12.5"), || {
+            let platform = workspace
+                .workspace
+                .value
+                .workspace
+                .platforms
+                .first()
+                .unwrap();
+            let packages = workspace.platform_virtual_packages(platform);
+            assert_eq!(
+                cuda_version(&packages),
+                None,
+                "explicitly declared script platforms must keep pixi's defaults"
+            );
+            let expected: Vec<GenericVirtualPackage> = get_minimal_virtual_packages(platform)
+                .into_iter()
+                .map(GenericVirtualPackage::from)
+                .collect();
+            let actual: Vec<GenericVirtualPackage> = packages
+                .into_iter()
+                .map(GenericVirtualPackage::from)
+                .collect();
+            assert_eq!(actual, expected);
+        });
+    }
+
+    /// Project workspaces never use host detection for solves -- their lock
+    /// files must stay machine-independent.
+    #[test]
+    fn project_workspace_platform_keeps_deterministic_defaults() {
+        let current = Platform::current();
+        let manifest = format!(
+            r#"
+            [workspace]
+            name = "demo"
+            channels = []
+            platforms = ["{current}"]
+            "#
+        );
+        let workspace =
+            crate::Workspace::from_str(std::path::Path::new("pixi.toml"), &manifest).unwrap();
+        assert!(!workspace.script_platforms_are_implicit());
+
+        temp_env::with_var("CONDA_OVERRIDE_CUDA", Some("12.5"), || {
+            let platform = workspace
+                .workspace
+                .value
+                .workspace
+                .platforms
+                .first()
+                .unwrap();
+            let packages = workspace.platform_virtual_packages(platform);
+            assert_eq!(cuda_version(&packages), None);
+        });
+    }
+
+    /// A platform whose subdir is not this machine's (e.g. reconstructed from
+    /// a lock file created elsewhere) keeps its deterministic defaults even in
+    /// an implicit-platform script: detected host packages only apply to the
+    /// subdir the host actually runs.
+    #[test]
+    fn implicit_script_platform_for_foreign_subdir_keeps_defaults() {
+        let (_root, _cache, workspace) = script_workspace(
+            "# /// script\n\
+             # dependencies = []\n\
+             # ///\n",
+        );
+        assert!(workspace.script_platforms_are_implicit());
+
+        let foreign_subdir = if Platform::current() == Platform::Win64 {
+            Platform::Linux64
+        } else {
+            Platform::Win64
+        };
+        let foreign = pixi_manifest::PixiPlatform::from_subdir(foreign_subdir);
+        temp_env::with_var("CONDA_OVERRIDE_CUDA", Some("12.5"), || {
+            let packages = workspace.platform_virtual_packages(&foreign);
+            assert_eq!(cuda_version(&packages), None);
+            let expected: Vec<GenericVirtualPackage> = get_minimal_virtual_packages(&foreign)
+                .into_iter()
+                .map(GenericVirtualPackage::from)
+                .collect();
+            let actual: Vec<GenericVirtualPackage> = packages
+                .into_iter()
+                .map(GenericVirtualPackage::from)
+                .collect();
+            assert_eq!(actual, expected);
+        });
     }
 
     #[test]
