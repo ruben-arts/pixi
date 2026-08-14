@@ -15,9 +15,9 @@ def assert_no_workspace_state_created(workspace: Path) -> None:
     assert {path.name for path in (workspace / ".pixi").iterdir()} == {"config.toml"}
 
 
-def write_cuda_gated_channel(root: Path) -> str:
-    """A minimal local channel (repodata only, solve-only) with a ``python``
-    package and a ``needs-cuda`` package that requires ``__cuda >=12``."""
+def write_cuda_gated_channel(root: Path, subdirs: list[str] | None = None) -> str:
+    """A repodata-only channel with ``python`` (scripts implicitly depend on
+    it) and ``needs-cuda``, which requires ``__cuda >=12``."""
 
     def record(name: str, version: str, depends: list[str]) -> dict[str, object]:
         return {
@@ -50,32 +50,24 @@ def write_cuda_gated_channel(root: Path) -> str:
             }
         )
     )
-    subdir = channel / CURRENT_PLATFORM
-    subdir.mkdir()
-    (subdir / "repodata.json").write_text(
-        json.dumps(
-            {"info": {"subdir": CURRENT_PLATFORM}, "packages": {}, "packages.conda": {}}
+    for subdir in subdirs or [CURRENT_PLATFORM]:
+        (channel / subdir).mkdir()
+        (channel / subdir / "repodata.json").write_text(
+            json.dumps({"info": {"subdir": subdir}, "packages": {}, "packages.conda": {}})
         )
-    )
     return channel.as_uri()
 
 
 def write_cuda_script(path: Path, channel: str, platforms: str | None = None) -> Path:
     """A PEP 723 script depending on ``needs-cuda`` (``__cuda >=12``)."""
-    platform_lines = (
-        ""
-        if platforms is None
-        else f"""\
-# platforms = [{platforms}]
-"""
-    )
+    platform_line = f"# platforms = [{platforms}]\n" if platforms else ""
     path.write_text(
         f"""# /// script
 # dependencies = []
 #
 # [tool.pixi.workspace]
 # channels = ["{channel}"]
-{platform_lines}#
+{platform_line}#
 # [tool.pixi.dependencies]
 # needs-cuda = "*"
 # ///
@@ -88,12 +80,8 @@ print("hello")
 def test_pixi_lock_script_solves_for_the_detected_host(
     pixi: Path, tmp_pixi_workspace: Path
 ) -> None:
-    """A script without explicit platforms must solve against the *detected*
-    host virtual packages, not pixi's deterministic per-subdir defaults.
-
-    Regression test: the defaults carry no ``__cuda`` (and only a baseline
-    ``__glibc``), so a dependency requiring ``__cuda >=12`` used to fail with
-    "no candidates were found" even though the host provided it."""
+    """A script without explicit platforms solves against the detected host
+    virtual packages, not pixi's deterministic per-subdir defaults."""
     channel = write_cuda_gated_channel(tmp_pixi_workspace)
     script = write_cuda_script(tmp_pixi_workspace / "example.py", channel)
     script_lock = script.with_name("example.py.pixi.lock")
@@ -103,6 +91,13 @@ def test_pixi_lock_script_solves_for_the_detected_host(
         [pixi, "lock", "--script", script],
         ExitCode.FAILURE,
         env={"CONDA_OVERRIDE_CUDA": ""},
+        stderr_contains="__cuda",
+    )
+    # Neither can a host below the floor.
+    verify_cli_command(
+        [pixi, "lock", "--script", script],
+        ExitCode.FAILURE,
+        env={"CONDA_OVERRIDE_CUDA": "10"},
         stderr_contains="__cuda",
     )
     assert not script_lock.exists()
@@ -126,29 +121,38 @@ def test_pixi_lock_script_solves_for_the_detected_host(
     assert_no_workspace_state_created(tmp_pixi_workspace)
 
 
-def test_pixi_lock_script_host_below_package_floor_still_fails(
+def test_pixi_lock_script_solves_for_the_overridden_host(
     pixi: Path, tmp_pixi_workspace: Path
 ) -> None:
-    """Guard rail: the solve uses the host's actual capability, so a host
-    below the package's ``__cuda >=12`` floor must still be refused."""
-    channel = write_cuda_gated_channel(tmp_pixi_workspace)
+    """PIXI_OVERRIDE_PLATFORM + CONDA_OVERRIDE_* emulate another machine, so
+    the implicit platform and the solve both follow the override — also when
+    an existing lock was made for this machine's real platform."""
+    other = "linux-64" if CURRENT_PLATFORM != "linux-64" else "win-64"
+    channel = write_cuda_gated_channel(tmp_pixi_workspace, subdirs=[CURRENT_PLATFORM, other])
     script = write_cuda_script(tmp_pixi_workspace / "example.py", channel)
+    script_lock = script.with_name("example.py.pixi.lock")
 
     verify_cli_command(
         [pixi, "lock", "--script", script],
-        ExitCode.FAILURE,
-        env={"CONDA_OVERRIDE_CUDA": "10"},
-        stderr_contains="__cuda",
+        ExitCode.SUCCESS,
+        env={"CONDA_OVERRIDE_CUDA": "12"},
     )
-    assert not script.with_name("example.py.pixi.lock").exists()
+    assert CURRENT_PLATFORM in script_lock.read_text()
+
+    verify_cli_command(
+        [pixi, "lock", "--script", script],
+        ExitCode.SUCCESS,
+        env={"PIXI_OVERRIDE_PLATFORM": other, "CONDA_OVERRIDE_CUDA": "12"},
+    )
+    lock = script_lock.read_text()
+    assert other in lock and "needs-cuda" in lock
 
 
 def test_pixi_lock_script_explicit_platforms_keep_deterministic_defaults(
     pixi: Path, tmp_pixi_workspace: Path
 ) -> None:
-    """Declaring ``platforms`` in the script section opts back into pixi's
-    machine-independent defaults: the host's cuda must not leak into the
-    solve, so the ``__cuda >=12`` requirement stays unsatisfiable."""
+    """Declaring ``platforms`` keeps pixi's machine-independent defaults, so
+    the host's cuda must not leak into the solve."""
     channel = write_cuda_gated_channel(tmp_pixi_workspace)
     script = write_cuda_script(
         tmp_pixi_workspace / "example.py",

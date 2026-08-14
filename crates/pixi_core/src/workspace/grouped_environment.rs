@@ -103,10 +103,8 @@ impl<'p> GroupedEnvironment<'p> {
             }
         }
     }
-    /// Returns the virtual packages from the group, sourced from the
-    /// platform's declared virtual packages with default fillers. Routed
-    /// through [`Workspace::platform_virtual_packages`] so implicit-platform
-    /// scripts solve against the detected host.
+    /// The virtual packages for this group, see
+    /// [`Workspace::platform_virtual_packages`].
     pub fn virtual_packages(&self, platform: &PixiPlatform) -> Vec<GenericVirtualPackage> {
         self.workspace()
             .platform_virtual_packages(platform)

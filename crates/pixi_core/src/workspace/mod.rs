@@ -190,6 +190,10 @@ pub struct Workspace {
 
     /// Optional backend override for testing purposes
     backend_override: Option<BackendOverride>,
+
+    /// Cached auto-detected host platform; detection reads `/proc` and probes
+    /// cuda, so it shouldn't run once per solve.
+    detected_host_platform: OnceCell<PixiPlatform>,
 }
 
 #[derive(Debug, Clone)]
@@ -199,6 +203,9 @@ enum WorkspaceStorage {
         manifest: Box<ScriptManifest>,
         pixi_dir: PathBuf,
         lock_file_path: Option<PathBuf>,
+        /// The script doesn't declare `platforms`, so it targets whatever
+        /// machine it runs on.
+        platforms_implicit: bool,
     },
 }
 
@@ -293,6 +300,45 @@ pub enum PlatformOverrides {
 /// the package if it wasn't detected at all), and empty removes the package
 /// entirely. Rattler drives this per slot via `detect_with_fallback`;
 /// `Ok(Some(v))` = use v, `Ok(None)` = disabled, error = leave untouched.
+/// The subdir from `PIXI_OVERRIDE_PLATFORM`, if set to a valid platform.
+pub(crate) fn env_override_subdir() -> Option<Platform> {
+    let value = std::env::var(consts::PIXI_OVERRIDE_PLATFORM).ok()?;
+    match value.parse::<Platform>() {
+        Ok(platform) => Some(platform),
+        Err(_) => {
+            tracing::warn!("Invalid value for PIXI_OVERRIDE_PLATFORM='{value}', ignoring.");
+            None
+        }
+    }
+}
+
+/// Uncached body of [`Workspace::host_platform`].
+fn build_host_platform(source: PlatformSource, overrides: PlatformOverrides) -> PixiPlatform {
+    let subdir = match overrides {
+        PlatformOverrides::NoOverrides => Platform::current(),
+        PlatformOverrides::EnvironmentVariableOverrides => {
+            env_override_subdir().unwrap_or_else(Platform::current)
+        }
+    };
+
+    let mut virtual_packages = match source {
+        PlatformSource::Defaults => PixiPlatform::from_subdir(subdir)
+            .declared_virtual_packages()
+            .to_vec(),
+        PlatformSource::AutoDetected => {
+            VirtualPackages::detect(&VirtualPackageOverrides::default())
+                .map(|detected| detected.into_generic_virtual_packages().collect())
+                .unwrap_or_default()
+        }
+    };
+
+    if let PlatformOverrides::EnvironmentVariableOverrides = overrides {
+        apply_environment_variable_overrides(&mut virtual_packages);
+    }
+
+    PixiPlatform::from_required_virtual_packages(subdir, virtual_packages)
+}
+
 fn apply_environment_variable_overrides(packages: &mut Vec<GenericVirtualPackage>) {
     let env = Override::DefaultEnvVar;
     packages.retain_mut(|package| {
@@ -465,6 +511,7 @@ impl Workspace {
             repodata_gateway: Default::default(),
             concurrent_downloads_semaphore: OnceCell::default(),
             backend_override: None,
+            detected_host_platform: OnceCell::default(),
         }
     }
 
@@ -490,6 +537,12 @@ impl Workspace {
                 .collect();
         }
         if !script_config.platforms_explicit {
+            // The implicit platform is the host, honoring PIXI_OVERRIDE_PLATFORM.
+            // An existing lock keeps its platforms as long as this machine can
+            // run one of them; a lock from another machine is replaced by the
+            // host platform and re-solved.
+            let host_subdir = env_override_subdir().unwrap_or_else(Platform::current);
+            let host_runnable = manifest.workspace.candidate_subdirs(host_subdir);
             let locked_platforms = LockFile::from_path(&lock_file_path)
                 .ok()
                 .map(|lock_file| {
@@ -498,11 +551,14 @@ impl Workspace {
                         .map(|platform| PixiPlatform::from_subdir(platform.subdir()))
                         .collect::<IndexSet<_>>()
                 })
-                .filter(|platforms| !platforms.is_empty());
+                .filter(|platforms| {
+                    platforms
+                        .iter()
+                        .any(|platform| host_runnable.contains(&platform.subdir()))
+                });
 
-            manifest.workspace.platforms = locked_platforms.unwrap_or_else(|| {
-                IndexSet::from([PixiPlatform::from_subdir(Platform::current())])
-            });
+            manifest.workspace.platforms = locked_platforms
+                .unwrap_or_else(|| IndexSet::from([PixiPlatform::from_subdir(host_subdir)]));
         }
 
         let root = script_path
@@ -525,6 +581,7 @@ impl Workspace {
                 manifest: Box::new(script_manifest),
                 pixi_dir,
                 lock_file_path: Some(lock_file_path),
+                platforms_implicit: !script_config.platforms_explicit,
             },
         ))
         .with_warnings(warnings))
@@ -551,8 +608,8 @@ impl Workspace {
                 .collect();
         }
         if !script_config.platforms_explicit {
-            manifest.workspace.platforms =
-                IndexSet::from([PixiPlatform::from_subdir(Platform::current())]);
+            let host_subdir = env_override_subdir().unwrap_or_else(Platform::current);
+            manifest.workspace.platforms = IndexSet::from([PixiPlatform::from_subdir(host_subdir)]);
         }
 
         let digest = format!("{:016x}", xxh3_64(cache_key));
@@ -591,6 +648,7 @@ impl Workspace {
                 manifest: Box::new(script_manifest),
                 pixi_dir,
                 lock_file_path: None,
+                platforms_implicit: !script_config.platforms_explicit,
             },
         ))
         .with_warnings(warnings))
@@ -862,19 +920,15 @@ impl Workspace {
         }
     }
 
-    /// True when this workspace is a PEP 723 script whose inline manifest does
-    /// not explicitly declare `[tool.pixi.workspace] platforms`. Such a script
-    /// has no portability intent: its environment should fit the machine it
-    /// runs on, so solves use the detected host virtual packages instead of
-    /// pixi's per-subdir defaults.
+    /// True if this is a script workspace that doesn't declare its own `platforms`.
     pub fn script_platforms_are_implicit(&self) -> bool {
-        match &self.storage {
-            WorkspaceStorage::Project => false,
-            WorkspaceStorage::Script { manifest, .. } => manifest
-                .workspace_config()
-                .map(|config| !config.platforms_explicit)
-                .unwrap_or(false),
-        }
+        matches!(
+            self.storage,
+            WorkspaceStorage::Script {
+                platforms_implicit: true,
+                ..
+            }
+        )
     }
 
     /// Returns the default environment of the project.
@@ -1181,40 +1235,15 @@ impl Workspace {
         source: PlatformSource,
         overrides: PlatformOverrides,
     ) -> PixiPlatform {
-        let subdir = match overrides {
-            PlatformOverrides::NoOverrides => Platform::current(),
-            PlatformOverrides::EnvironmentVariableOverrides => {
-                std::env::var(consts::PIXI_OVERRIDE_PLATFORM)
-                    .ok()
-                    .and_then(|value| match value.parse::<Platform>() {
-                        Ok(platform) => Some(platform),
-                        Err(_) => {
-                            tracing::warn!(
-                                "Invalid value for PIXI_OVERRIDE_PLATFORM='{value}', ignoring."
-                            );
-                            None
-                        }
-                    })
-                    .unwrap_or_else(Platform::current)
-            }
-        };
-
-        let mut virtual_packages = match source {
-            PlatformSource::Defaults => PixiPlatform::from_subdir(subdir)
-                .declared_virtual_packages()
-                .to_vec(),
-            PlatformSource::AutoDetected => {
-                VirtualPackages::detect(&VirtualPackageOverrides::default())
-                    .map(|detected| detected.into_generic_virtual_packages().collect())
-                    .unwrap_or_default()
-            }
-        };
-
-        if let PlatformOverrides::EnvironmentVariableOverrides = overrides {
-            apply_environment_variable_overrides(&mut virtual_packages);
+        if let (PlatformSource::AutoDetected, PlatformOverrides::EnvironmentVariableOverrides) =
+            (source, overrides)
+        {
+            return self
+                .detected_host_platform
+                .get_or_init(|| build_host_platform(source, overrides))
+                .clone();
         }
-
-        PixiPlatform::from_required_virtual_packages(subdir, virtual_packages)
+        build_host_platform(source, overrides)
     }
 
     /// Construct a [`ChannelConfig`] that is specific to this project. This
@@ -2210,7 +2239,7 @@ channels = []
 platforms = []
 "#;
 
-    fn script_workspace(source: &str, root: &Path, cache: &Path) -> Workspace {
+    pub(crate) fn script_workspace(source: &str, root: &Path, cache: &Path) -> Workspace {
         let path = root.join("example.py");
         fs_err::write(&path, source).unwrap();
         let script = ScriptManifest::from_path(path).unwrap().unwrap();
@@ -2351,32 +2380,37 @@ print("hello")
 
     #[test]
     fn script_workspace_reuses_platforms_from_an_existing_sidecar_lock() {
-        let root = tempfile::tempdir().unwrap();
-        let cache = tempfile::tempdir().unwrap();
-        let lock_file = LockFile::builder()
-            .with_platforms(
-                [Platform::Linux64, Platform::OsxArm64]
-                    .into_iter()
-                    .map(|subdir| rattler_lock::PlatformData {
-                        name: rattler_lock::PlatformName::try_from(subdir.as_str()).unwrap(),
-                        subdir,
-                        virtual_packages: Vec::new(),
-                    })
-                    .collect(),
-            )
-            .unwrap()
-            .finish();
-        lock_file
-            .to_path(&root.path().join("example.py.pixi.lock"))
-            .unwrap();
+        let current = Platform::current();
+        let foreign = if current == Platform::Linux64 {
+            Platform::OsxArm64
+        } else {
+            Platform::Linux64
+        };
+        let subdirs_after_lock = |locked: &[Platform]| {
+            let root = tempfile::tempdir().unwrap();
+            let cache = tempfile::tempdir().unwrap();
+            let lock_file = LockFile::builder()
+                .with_platforms(
+                    locked
+                        .iter()
+                        .map(|subdir| rattler_lock::PlatformData {
+                            name: rattler_lock::PlatformName::try_from(subdir.as_str()).unwrap(),
+                            subdir: *subdir,
+                            virtual_packages: Vec::new(),
+                        })
+                        .collect(),
+                )
+                .unwrap()
+                .finish();
+            lock_file
+                .to_path(&root.path().join("example.py.pixi.lock"))
+                .unwrap();
 
-        let workspace = script_workspace(
-            "# /// script\n# dependencies = []\n# ///\n",
-            root.path(),
-            cache.path(),
-        );
-
-        assert_eq!(
+            let workspace = script_workspace(
+                "# /// script\n# dependencies = []\n# ///\n",
+                root.path(),
+                cache.path(),
+            );
             workspace
                 .workspace
                 .value
@@ -2384,9 +2418,13 @@ print("hello")
                 .platforms
                 .iter()
                 .map(PixiPlatform::subdir)
-                .collect::<Vec<_>>(),
-            [Platform::Linux64, Platform::OsxArm64]
-        );
+                .collect::<Vec<_>>()
+        };
+
+        // One of the locked platforms runs on this machine: keep them all.
+        assert_eq!(subdirs_after_lock(&[current, foreign]), [current, foreign]);
+        // A lock from another machine is replaced by the host platform.
+        assert_eq!(subdirs_after_lock(&[foreign]), [current]);
     }
 
     #[test]

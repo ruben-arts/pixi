@@ -1785,9 +1785,7 @@ mod tests {
         }
     }
 
-    // Env-var mutation goes through `temp_env` so every test that touches
-    // process environment (here and in sibling modules) serializes on the
-    // same global lock; a module-local mutex would race with those.
+    // Env-var mutation goes through `temp_env` so all env tests share one lock.
     #[test]
     fn test_best_declared_platform_override_env_var() {
         let temp_dir = tempfile::tempdir().unwrap();
@@ -1799,21 +1797,25 @@ mod tests {
         "#;
         let workspace = Workspace::from_str(&temp_dir.path().join("pixi.toml"), contents).unwrap();
 
-        temp_env::with_var(consts::PIXI_OVERRIDE_PLATFORM, Some("linux-aarch64"), || {
-            let env = workspace.default_environment();
-            // No declared platforms → None even with a valid override.
-            assert!(env.best_declared_platform().is_none());
-            // The host_platform helper honours the override.
-            assert_eq!(
-                workspace
-                    .host_platform(
-                        PlatformSource::Defaults,
-                        PlatformOverrides::EnvironmentVariableOverrides
-                    )
-                    .subdir(),
-                Platform::LinuxAarch64,
-            );
-        });
+        temp_env::with_var(
+            consts::PIXI_OVERRIDE_PLATFORM,
+            Some("linux-aarch64"),
+            || {
+                let env = workspace.default_environment();
+                // No declared platforms → None even with a valid override.
+                assert!(env.best_declared_platform().is_none());
+                // The host_platform helper honours the override.
+                assert_eq!(
+                    workspace
+                        .host_platform(
+                            PlatformSource::Defaults,
+                            PlatformOverrides::EnvironmentVariableOverrides
+                        )
+                        .subdir(),
+                    Platform::LinuxAarch64,
+                );
+            },
+        );
     }
 
     #[test]
@@ -1827,20 +1829,24 @@ mod tests {
         "#;
         let workspace = Workspace::from_str(&temp_dir.path().join("pixi.toml"), contents).unwrap();
 
-        temp_env::with_var(consts::PIXI_OVERRIDE_PLATFORM, Some("not-a-platform"), || {
-            let env = workspace.default_environment();
-            // No declared platforms → None regardless of the (invalid) override.
-            assert!(env.best_declared_platform().is_none());
-            // The host_platform helper still falls back to Platform::current() on invalid values.
-            assert_eq!(
-                workspace
-                    .host_platform(
-                        PlatformSource::Defaults,
-                        PlatformOverrides::EnvironmentVariableOverrides
-                    )
-                    .subdir(),
-                Platform::current(),
-            );
-        });
+        temp_env::with_var(
+            consts::PIXI_OVERRIDE_PLATFORM,
+            Some("not-a-platform"),
+            || {
+                let env = workspace.default_environment();
+                // No declared platforms → None regardless of the (invalid) override.
+                assert!(env.best_declared_platform().is_none());
+                // The host_platform helper still falls back to Platform::current() on invalid values.
+                assert_eq!(
+                    workspace
+                        .host_platform(
+                            PlatformSource::Defaults,
+                            PlatformOverrides::EnvironmentVariableOverrides
+                        )
+                        .subdir(),
+                    Platform::current(),
+                );
+            },
+        );
     }
 }

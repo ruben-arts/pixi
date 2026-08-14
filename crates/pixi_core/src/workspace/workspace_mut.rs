@@ -230,7 +230,11 @@ impl WorkspaceMut {
         pixi_utils::atomic_write::atomic_write(&manifest_path, new_contents).await?;
         self.modified = true;
 
-        if let WorkspaceStorage::Script { manifest, .. } = &mut self
+        if let WorkspaceStorage::Script {
+            manifest,
+            platforms_implicit,
+            ..
+        } = &mut self
             .workspace
             .as_mut()
             .expect("workspace is not available")
@@ -243,6 +247,11 @@ impl WorkspaceMut {
                         "saved script no longer contains a PEP 723 metadata block",
                     )
                 })?;
+            // An edit can add or remove the `platforms` declaration.
+            *platforms_implicit = !manifest
+                .workspace_config()
+                .map_err(std::io::Error::other)?
+                .platforms_explicit;
         }
         Ok(())
     }
