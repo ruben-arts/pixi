@@ -503,6 +503,12 @@ impl Workspace {
             manifest.workspace.platforms = locked_platforms.unwrap_or_else(|| {
                 IndexSet::from([PixiPlatform::from_subdir(Platform::current())])
             });
+            manifest.workspace.declared_subdirs = manifest
+                .workspace
+                .platforms
+                .iter()
+                .map(PixiPlatform::subdir)
+                .collect();
         }
 
         let root = script_path
@@ -553,6 +559,7 @@ impl Workspace {
         if !script_config.platforms_explicit {
             manifest.workspace.platforms =
                 IndexSet::from([PixiPlatform::from_subdir(Platform::current())]);
+            manifest.workspace.declared_subdirs = IndexSet::from([Platform::current()]);
         }
 
         let digest = format!("{:016x}", xxh3_64(cache_key));

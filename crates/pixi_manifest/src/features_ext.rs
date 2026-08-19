@@ -180,21 +180,20 @@ pub trait FeaturesExt<'source>: HasWorkspaceManifest<'source> + HasFeaturesIter<
         let workspace = &self.workspace_manifest().workspace;
         if workspace.use_platform_composition {
             let features: Vec<&Feature> = self.features().collect();
-            return environment_subdirs(
-                &features,
-                &workspace.feature_added_platforms,
-                &workspace.platforms,
-            )
-            .into_iter()
-            .filter_map(|subdir| {
-                let name = combined_platform_name(&features, subdir, &workspace.platforms);
-                workspace
-                    .platforms
-                    .iter()
-                    .find(|platform| platform.name().as_str() == name)
-                    .map(|platform| platform.name().clone())
-            })
-            .collect();
+            return environment_subdirs(&features, &workspace.declared_subdirs, &workspace.platforms)
+                .into_iter()
+                .map(|subdir| {
+                    let name = combined_platform_name(&features, subdir, &workspace.platforms);
+                    workspace
+                        .platforms
+                        .iter()
+                        .find(|platform| platform.name().as_str() == name)
+                        .map(|platform| platform.name().clone())
+                        // A composed name that is not registered falls back to
+                        // the bare subdir name instead of being dropped.
+                        .unwrap_or_else(|| PixiPlatformName::from(subdir))
+                })
+                .collect();
         }
         let exact_names: HashSet<&PixiPlatformName> = self
             .features()

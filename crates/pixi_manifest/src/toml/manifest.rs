@@ -638,21 +638,28 @@ fn migrate_system_requirements_to_platforms(
     // platforms by subdir; custom rich platforms are matched by name.
     workspace.use_platform_composition = all_simple_subdir;
 
+    // Snapshot the declared subdirs before migration rewrites the platform
+    // list: they are the base every environment spans, while platforms that
+    // only exist because a feature referenced them stay per-environment
+    // (prefix-dev/pixi#6770).
     if all_simple_subdir {
-        extend_originals_with_referenced_subdirs(
-            &mut workspace.platforms,
-            &mut workspace.feature_added_platforms,
-            features,
-        )?;
+        workspace.declared_subdirs = workspace
+            .platforms
+            .iter()
+            .map(PixiPlatform::subdir)
+            .collect();
     }
 
     // Without `[system-requirements]` there is nothing to migrate: keep every
     // declared platform exactly as written -- including two distinct platforms
     // that share a subdir, e.g. `linux-64` plus `linux-64-cuda-12-9` -- and
-    // only check that each feature reference resolves.
+    // only check that each feature reference resolves. On the composition path
+    // a name that is not declared may still be a bare conda subdir; it is
+    // resolved on the fly wherever it is referenced instead of being folded
+    // into the workspace platform list (prefix-dev/pixi#6770).
     if !has_any_sysreqs {
         for feature in features.values() {
-            validate_referenced_platforms(&workspace.platforms, feature)?;
+            validate_referenced_platforms(&workspace.platforms, feature, all_simple_subdir)?;
         }
         return Ok(());
     }
@@ -681,65 +688,45 @@ fn migrate_system_requirements_to_platforms(
     Ok(())
 }
 
-/// Pre-scan pass for the simple-subdir-only workspace case: every name in
-/// any feature's platforms list that isn't already declared in the workspace
-/// is appended to `originals` as a bare subdir-platform, provided the name
-/// parses as a conda subdir. Names that don't parse are a hard error.
-///
-/// Each name that is genuinely added (not already declared) is recorded in
-/// `feature_added` so later platform resolution can keep these feature-only
-/// platforms out of environments that don't reference them
-/// (prefix-dev/pixi#6770).
-fn extend_originals_with_referenced_subdirs(
-    originals: &mut IndexSet<PixiPlatform>,
-    feature_added: &mut IndexSet<PixiPlatformName>,
-    features: &IndexMap<FeatureName, Feature>,
-) -> Result<(), TomlError> {
-    for feature in features.values() {
-        let Some(names) = feature.platforms.as_ref() else {
-            continue;
-        };
-        for name in names {
-            if originals.iter().any(|p| p.name() == name) {
-                continue;
-            }
-            let subdir = Platform::from_str(name.as_str()).map_err(|e| {
-                TomlError::from(GenericError::new(format!(
-                    "{} references platform '{}' which is neither declared in the workspace nor a valid conda subdir: {e}",
-                    feature.name.user_facing(), name,
-                )))
-            })?;
-            let platform = PixiPlatform::from_subdir(subdir);
-            feature_added.insert(platform.name().clone());
-            originals.insert(platform);
-        }
-    }
-    Ok(())
-}
-
 /// Error if any name in `feature.platforms` does not resolve to a platform
-/// declared in the workspace.
+/// declared in the workspace. On the composition path (`allow_subdir_names`)
+/// an undeclared name is still accepted when it parses as a bare conda
+/// subdir; it is resolved on the fly at query time.
 fn validate_referenced_platforms(
     platforms: &IndexSet<PixiPlatform>,
     feature: &Feature,
+    allow_subdir_names: bool,
 ) -> Result<(), TomlError> {
     let Some(names) = feature.platforms.as_ref() else {
         return Ok(());
     };
     for name in names {
-        if !platforms.iter().any(|p| p.name() == name) {
-            return Err(TomlError::from(GenericError::new(format!(
-                "{} references platform '{}' which is not declared in the workspace",
-                feature.name.user_facing(),
-                name,
-            ))));
+        if platforms.iter().any(|p| p.name() == name) {
+            continue;
         }
+        if allow_subdir_names {
+            Platform::from_str(name.as_str()).map_err(|e| {
+                TomlError::from(GenericError::new(format!(
+                    "{} references platform '{}' which is neither declared in the workspace nor a valid conda subdir: {e}",
+                    feature.name.user_facing(), name,
+                )))
+            })?;
+            continue;
+        }
+        return Err(TomlError::from(GenericError::new(format!(
+            "{} references platform '{}' which is not declared in the workspace",
+            feature.name.user_facing(),
+            name,
+        ))));
     }
     Ok(())
 }
 
 /// Resolve every name in `feature.platforms` to an original `PixiPlatform`
-/// and copy it into `workspace.platforms`. Error if a name is missing.
+/// and copy it into `workspace.platforms`. A name that is not declared but
+/// parses as a bare conda subdir is left unregistered (it is resolved on the
+/// fly at query time, so it doesn't leak into other environments through the
+/// global platform list); any other missing name is an error.
 fn register_referenced_originals(
     originals: &IndexSet<PixiPlatform>,
     feature: &Feature,
@@ -749,14 +736,19 @@ fn register_referenced_originals(
         return Ok(());
     };
     for name in names {
-        let original = originals.iter().find(|p| p.name() == name).ok_or_else(|| {
-            TomlError::from(GenericError::new(format!(
-                "{} references platform '{}' which is not declared in the workspace",
-                feature.name.user_facing(),
-                name,
-            )))
-        })?;
-        target.insert(original.clone());
+        match originals.iter().find(|p| p.name() == name) {
+            Some(original) => {
+                target.insert(original.clone());
+            }
+            None => {
+                Platform::from_str(name.as_str()).map_err(|e| {
+                    TomlError::from(GenericError::new(format!(
+                        "{} references platform '{}' which is neither declared in the workspace nor a valid conda subdir: {e}",
+                        feature.name.user_facing(), name,
+                    )))
+                })?;
+            }
+        }
     }
     Ok(())
 }

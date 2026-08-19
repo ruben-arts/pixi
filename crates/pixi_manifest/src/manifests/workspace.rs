@@ -84,23 +84,19 @@ impl WorkspaceManifest {
         if !self.workspace.use_platform_composition {
             return Ok(());
         }
-        let feature_added = self.workspace.feature_added_platforms.clone();
+        let declared = self.workspace.declared_subdirs.clone();
         let all = self.workspace.platforms.clone();
         let mut composed: IndexSet<PixiPlatform> = IndexSet::new();
         for environment in self.environments.iter() {
             let features = self.environment_features(environment);
             composed.extend(crate::platform_composition::combined_platforms(
-                &features,
-                &feature_added,
-                &all,
+                &features, &declared, &all,
             )?);
         }
         for solve_group in self.solve_groups.iter() {
             let features = self.solve_group_features(solve_group);
             composed.extend(crate::platform_composition::combined_platforms(
-                &features,
-                &feature_added,
-                &all,
+                &features, &declared, &all,
             )?);
         }
         self.workspace.platforms.extend(composed);
@@ -657,6 +653,12 @@ impl WorkspaceManifestMut<'_> {
             .workspace
             .platforms
             .extend(new_platforms.iter().cloned());
+        // Newly declared platforms widen the base every environment spans on
+        // the composition path.
+        self.workspace
+            .workspace
+            .declared_subdirs
+            .extend(new_platforms.iter().map(PixiPlatform::subdir));
 
         // Capture this before `commit_if_needed` clears the flag: a committing
         // migration rewrites every entry's shape, so the stale on-disk array
@@ -1052,6 +1054,13 @@ impl WorkspaceManifestMut<'_> {
             .workspace
             .platforms
             .retain(|existing| !platforms.contains(existing.name()));
+        // A removed declaration also shrinks the base every environment spans
+        // on the composition path (names there are bare subdirs).
+        for name in platforms {
+            if let Ok(subdir) = name.as_str().parse::<Platform>() {
+                self.workspace.workspace.declared_subdirs.shift_remove(&subdir);
+            }
+        }
 
         // Update TOML document platforms. Retain-and-filter (rather than
         // clear-and-rebuild) so we preserve the user's quoting and spacing
