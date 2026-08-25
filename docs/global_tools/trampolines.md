@@ -17,3 +17,7 @@ When you execute a globally installed executable, a trampoline performs the foll
 
 The trampoline will take care that the `PATH` contains the newest changes on your local `PATH` while avoiding caching temporary `PATH` changes during installation.
 If you want to control the base `PATH` pixi considers, you can set `export PIXI_BASE_PATH=$PATH` in your shell startup script.
+
+The trampoline also removes the environment variables that would make a globally installed executable load files from a different environment.
+Currently these are `PYTHONPATH` and `PYTHONHOME`: without removing them, running a global tool from a shell that has another environment activated, such as a conda environment or a ROS workspace, makes the tool's Python pick up that environment's `site-packages` instead of its own.
+If the global environment sets one of these variables itself, its value is kept.

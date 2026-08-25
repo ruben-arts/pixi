@@ -22,6 +22,11 @@ pub struct Configuration {
     pub path_diff: String,
     /// Environment variables to be set before executing the original executable.
     pub env: HashMap<String, String>,
+    /// Environment variables to be removed before executing the original
+    /// executable, so the original executable doesn't inherit them from
+    /// whatever environment is active in the calling shell.
+    #[serde(default)]
+    pub unset_env: Vec<String>,
 }
 
 fn read_configuration(current_exe: &Path) -> miette::Result<Configuration> {
@@ -113,6 +118,11 @@ fn trampoline() -> miette::Result<()> {
     // Create a new Command for the specified executable
     let mut cmd = Command::new(configuration.exe);
 
+    // Remove the environment variables that shouldn't be inherited
+    for key in configuration.unset_env.iter() {
+        cmd.env_remove(key);
+    }
+
     // Set any additional environment variables
     for (key, value) in configuration.env.iter() {
         cmd.env(key, value);
@@ -165,8 +175,17 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::compose_path;
+    use super::{compose_path, Configuration};
     use std::ffi::OsStr;
+
+    #[test]
+    fn configuration_without_unset_env_is_still_readable() {
+        let configuration: Configuration = serde_json::from_str(
+            r#"{"exe": "/opt/env/bin/tool", "path_diff": "/opt/env/bin", "env": {}}"#,
+        )
+        .unwrap();
+        assert!(configuration.unset_env.is_empty());
+    }
 
     #[test]
     fn missing_path_uses_path_diff_only() {

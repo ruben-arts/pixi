@@ -153,6 +153,11 @@ pub struct Configuration {
     pub path_diff: String,
     /// Environment variables to be set before executing the original executable.
     pub env: HashMap<String, String>,
+    /// Environment variables to be removed before executing the original
+    /// executable, so the original executable doesn't inherit them from
+    /// whatever environment is active in the calling shell.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unset_env: Vec<String>,
 }
 
 impl Configuration {
@@ -162,7 +167,15 @@ impl Configuration {
             exe,
             path_diff,
             env,
+            unset_env: Vec::new(),
         }
+    }
+
+    /// Set the environment variables that should be removed before executing
+    /// the original executable.
+    pub fn with_unset_env(mut self, unset_env: Vec<String>) -> Self {
+        self.unset_env = unset_env;
+        self
     }
 
     /// Read existing configuration of trampoline from the root path.

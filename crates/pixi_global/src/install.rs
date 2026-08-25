@@ -76,6 +76,25 @@ pub(crate) fn script_exec_mapping<'a>(
     }
 }
 
+/// Environment variables that point an executable at the files of another
+/// environment. A globally installed executable has its own environment, so
+/// inheriting these from the shell that happens to invoke it makes it load
+/// files that were built for a different interpreter or prefix.
+const NON_INHERITED_ENV_VARS: &[&str] = &["PYTHONPATH", "PYTHONHOME"];
+
+/// Returns the environment variables the trampoline should remove before
+/// executing the original executable.
+///
+/// A variable that the environment sets itself is left alone, it is part of
+/// how the environment is meant to run.
+fn non_inherited_env_vars(activation_variables: &HashMap<String, String>) -> Vec<String> {
+    NON_INHERITED_ENV_VARS
+        .iter()
+        .filter(|name| !activation_variables.contains_key(**name))
+        .map(|name| name.to_string())
+        .collect()
+}
+
 /// Mapping from the global script location to an executable in a package
 /// environment .
 #[derive(Debug)]
@@ -140,7 +159,9 @@ pub(crate) async fn create_executable_trampolines(
         {
             remove_incomplete_conda_activation_stack(&mut env_for_trampoline);
         }
-        let metadata = Configuration::new(exe, path_diff.clone(), env_for_trampoline);
+        let unset_env = non_inherited_env_vars(&env_for_trampoline);
+        let metadata = Configuration::new(exe, path_diff.clone(), env_for_trampoline)
+            .with_unset_env(unset_env);
 
         let exposed_name = Trampoline::name(global_script_path)?;
         let json_path = Configuration::path_from_trampoline(parent_dir, &exposed_name);
@@ -372,6 +393,22 @@ mod tests {
     use crate::EnvRoot;
 
     use super::*;
+
+    #[test]
+    fn test_non_inherited_env_vars_are_unset() {
+        let unset = non_inherited_env_vars(&HashMap::new());
+        assert_eq!(unset, vec!["PYTHONPATH", "PYTHONHOME"]);
+    }
+
+    #[test]
+    fn test_env_vars_set_by_the_environment_are_kept() {
+        let activation_variables = HashMap::from([(
+            "PYTHONPATH".to_string(),
+            "/prefix/site-packages".to_string(),
+        )]);
+        let unset = non_inherited_env_vars(&activation_variables);
+        assert_eq!(unset, vec!["PYTHONHOME"]);
+    }
 
     #[fixture]
     fn ripgrep_specs() -> IndexSet<MatchSpec> {
