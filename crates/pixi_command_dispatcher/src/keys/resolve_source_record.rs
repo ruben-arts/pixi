@@ -17,7 +17,7 @@ use pixi_compute_reporters::OperationId;
 use pixi_record::{
     FullSourceRecordData, PinnedSourceSpec, PixiRecord, SourceRecord, UnresolvedPixiRecord,
 };
-use pixi_spec::{BinarySpec, PixiSpec, SourceAnchor, SourceLocationSpec};
+use pixi_spec::{BinarySpec, BuildDependencyMode, PixiSpec, SourceAnchor, SourceLocationSpec};
 use pixi_spec_containers::DependencyMap;
 use pixi_variant::VariantValue;
 use rattler_conda_types::{PackageName, PackageRecord, package::RunExportsJson};
@@ -53,6 +53,7 @@ pub(super) async fn assemble_source_record(
     source: &PinnedSourceCodeLocation,
     output: &CondaOutput,
     preferred_build_source: &Arc<BTreeMap<PackageName, PinnedSourceSpec>>,
+    shared_workspace_dependencies: &Arc<DependencyMap<PackageName, PixiSpec>>,
     env_ref: &EnvironmentRef,
     installed_source_hints: &PtrArc<InstalledSourceHints>,
     inline_content_hash: Option<InlineContentHash>,
@@ -98,6 +99,7 @@ pub(super) async fn assemble_source_record(
         source,
         output,
         preferred_build_source,
+        shared_workspace_dependencies,
         env_ref,
         installed_source_hints,
         inline_content_hash,
@@ -114,14 +116,23 @@ async fn assemble_source_record_inner(
     source: &PinnedSourceCodeLocation,
     output: &CondaOutput,
     preferred_build_source: &Arc<BTreeMap<PackageName, PinnedSourceSpec>>,
+    shared_workspace_dependencies: &Arc<DependencyMap<PackageName, PixiSpec>>,
     env_ref: &EnvironmentRef,
     installed_source_hints: &PtrArc<InstalledSourceHints>,
     inline_content_hash: Option<InlineContentHash>,
 ) -> Result<Arc<SourceRecord>, SourceRecordError> {
     let source_location = SourceLocationSpec::from(source.manifest_source().clone());
     let source_anchor = SourceAnchor::from(source_location.clone());
-    let channel_config = ctx.compute(&ChannelConfigKey).await;
     let pkg_name = output.metadata.name.clone();
+    let explicitly_isolated = shared_workspace_dependencies
+        .iter()
+        .find(|(name, _)| *name == &pkg_name)
+        .is_some_and(|(_, specs)| {
+            specs
+                .iter()
+                .any(|spec| spec.build_dependency_mode() == Some(BuildDependencyMode::Isolated))
+        });
+    let share_workspace_dependencies = output.shared_workspace_dependencies && !explicitly_isolated;
 
     // Look up this `(package, source_location)`'s install hint. The
     // nested build / host solves use it as their prior-resolution
@@ -146,11 +157,17 @@ async fn assemble_source_record_inner(
         .transpose()
         .map_err(SourceRecordError::from)?
         .unwrap_or_default();
+    let build_dependencies = if share_workspace_dependencies {
+        build_dependencies.extend_with_shared_workspace_dependencies(shared_workspace_dependencies)
+    } else {
+        build_dependencies
+    };
 
     let mut build_records = nested_solve(
         ctx,
         &pkg_name,
         preferred_build_source,
+        shared_workspace_dependencies,
         env_ref,
         DerivedEnvKind::Build,
         CycleEnvironment::Build,
@@ -188,13 +205,19 @@ async fn assemble_source_record_inner(
         .map(|deps| Dependencies::new(deps, Some(source_anchor.clone()), &compatibility_map))
         .transpose()
         .map_err(SourceRecordError::from)?
-        .unwrap_or_default()
-        .extend_with_run_exports_from_build(&build_run_exports);
+        .unwrap_or_default();
+    let host_dependencies = if share_workspace_dependencies {
+        host_dependencies.extend_with_shared_workspace_dependencies(shared_workspace_dependencies)
+    } else {
+        host_dependencies
+    }
+    .extend_with_run_exports_from_build(&build_run_exports);
 
-    let mut host_records = nested_solve(
+    let host_records = nested_solve(
         ctx,
         &pkg_name,
         preferred_build_source,
+        shared_workspace_dependencies,
         env_ref,
         DerivedEnvKind::Host,
         CycleEnvironment::Host,
@@ -204,6 +227,42 @@ async fn assemble_source_record_inner(
     )
     .await?;
 
+    finalize_source_record(
+        ctx,
+        source,
+        output,
+        build_dependencies,
+        build_records,
+        build_run_exports,
+        host_dependencies,
+        host_records,
+        inline_content_hash,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn finalize_source_record(
+    ctx: &mut ComputeCtx,
+    source: &PinnedSourceCodeLocation,
+    output: &CondaOutput,
+    _build_dependencies: Dependencies,
+    build_records: Vec<PixiRecord>,
+    build_run_exports: Vec<(PackageName, PixiRunExports)>,
+    host_dependencies: Dependencies,
+    mut host_records: Vec<PixiRecord>,
+    inline_content_hash: Option<InlineContentHash>,
+) -> Result<Arc<SourceRecord>, SourceRecordError> {
+    let source_location = SourceLocationSpec::from(source.manifest_source().clone());
+    let source_anchor = SourceAnchor::from(source_location.clone());
+    let channel_config = ctx.compute(&ChannelConfigKey).await;
+    let mut compatibility_map = HashMap::new();
+    compatibility_map.extend(
+        build_records
+            .iter()
+            .map(|record| (record.package_record().name.clone(), record)),
+    );
+    let gateway = ctx.global_data().gateway().clone();
     let host_run_exports = host_dependencies
         .extract_run_exports(
             &mut host_records,
@@ -504,6 +563,7 @@ async fn nested_solve(
     ctx: &mut ComputeCtx,
     pkg_name: &PackageName,
     preferred_build_source: &Arc<BTreeMap<PackageName, PinnedSourceSpec>>,
+    shared_workspace_dependencies: &Arc<DependencyMap<PackageName, PixiSpec>>,
     env_ref: &EnvironmentRef,
     kind: DerivedEnvKind,
     cycle_env: CycleEnvironment,
@@ -521,6 +581,7 @@ async fn nested_solve(
             .into_specs()
             .map(|(name, withspec)| (name, withspec.value))
             .collect(),
+        shared_workspace_dependencies: Arc::clone(shared_workspace_dependencies),
         constraints: dependencies
             .constraints
             .into_specs()

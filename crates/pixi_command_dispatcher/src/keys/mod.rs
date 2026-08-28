@@ -8,6 +8,7 @@ pub mod backend_binary_fingerprint;
 pub mod input_glob_set_walk;
 pub mod resolve_source_package;
 pub(crate) mod resolve_source_record;
+pub(crate) mod shared_source_solve;
 pub mod solve_conda;
 pub mod solve_pixi_environment;
 pub mod source_build;

@@ -47,6 +47,7 @@ use crate::{
     keys::{
         resolve_source_package::{ResolveSourcePackageKey, ResolveSourcePackageSpec},
         resolve_source_record::{SourceCycleFrame, render_cycle},
+        shared_source_solve::apply_shared_source_solves,
         solve_conda::{SolveCondaKey, SolveCondaKeyError, SolveCondaSpec},
     },
     reporter::has_direct_conda_dependency,
@@ -91,6 +92,10 @@ fn check_missing_channels(
 #[derive(Debug, Clone)]
 pub struct SolvePixiEnvironmentSpec {
     pub dependencies: DependencyMap<PackageName, PixiSpec>,
+    /// The dependency choices of the top-level consuming environment. ROS
+    /// source package build/host solves use matching entries from this map.
+    /// Nested solves propagate the same map unchanged.
+    pub shared_workspace_dependencies: Arc<DependencyMap<PackageName, PixiSpec>>,
     pub constraints: DependencyMap<PackageName, BinarySpec>,
     pub dev_sources: OrderMap<PackageName, DevSourceSpec>,
     /// Prior-resolution state used as solver-stability hints. Partial
@@ -137,6 +142,7 @@ impl Hash for SolvePixiEnvironmentSpec {
         // https://github.com/conda/rattler/pull/2377).
         let Self {
             dependencies,
+            shared_workspace_dependencies,
             constraints,
             dev_sources,
             installed,
@@ -147,6 +153,7 @@ impl Hash for SolvePixiEnvironmentSpec {
             inline_packages,
         } = self;
         dependencies.hash(state);
+        shared_workspace_dependencies.hash(state);
         constraints.hash(state);
         dev_sources.hash(state);
         installed.hash(state);
@@ -162,6 +169,7 @@ impl PartialEq for SolvePixiEnvironmentSpec {
     // TODO: collapse to `derive(PartialEq)` once rattler PR above lands.
     fn eq(&self, other: &Self) -> bool {
         self.dependencies == other.dependencies
+            && self.shared_workspace_dependencies == other.shared_workspace_dependencies
             && self.constraints == other.constraints
             && self.dev_sources == other.dev_sources
             && self.installed == other.installed
@@ -349,12 +357,27 @@ async fn compute_inner(
     // it.
     let walk_started = Instant::now();
     let seed_count = seeds.len();
-    let resolved = walk_and_resolve(
+    let mut resolved = walk_and_resolve(
         ctx,
         seeds,
         &spec.env_ref,
         &spec.preferred_build_source,
+        &spec.shared_workspace_dependencies,
         &spec.installed_source_hints,
+    )
+    .await?;
+    resolved = apply_shared_source_solves(
+        ctx,
+        resolved,
+        &spec.env_ref,
+        &spec.shared_workspace_dependencies,
+        &spec.preferred_build_source,
+        &spec.installed_source_hints,
+        &spec.installed,
+        &spec.inline_packages,
+        &env_spec,
+        spec.strategy,
+        exclude_newer.clone(),
     )
     .await?;
     tracing::debug!(
@@ -484,6 +507,7 @@ async fn walk_and_resolve(
     seeds: Vec<SourceSeed>,
     env_ref: &EnvironmentRef,
     preferred_build_source: &Arc<BTreeMap<PackageName, PinnedSourceSpec>>,
+    shared_workspace_dependencies: &Arc<DependencyMap<PackageName, PixiSpec>>,
     installed_source_hints: &PtrArc<InstalledSourceHints>,
 ) -> Result<Vec<Arc<pixi_record::SourceRecord>>, SolvePixiEnvironmentError> {
     let mut all_records: Vec<Arc<pixi_record::SourceRecord>> = Vec::new();
@@ -519,6 +543,7 @@ async fn walk_and_resolve(
             package: name.clone(),
             source_location: location,
             preferred_build_source: Arc::clone(preferred_build_source),
+            shared_workspace_dependencies: Arc::clone(shared_workspace_dependencies),
             env_ref: env_ref.clone(),
             inline,
             installed_source_hints: installed_source_hints.clone(),

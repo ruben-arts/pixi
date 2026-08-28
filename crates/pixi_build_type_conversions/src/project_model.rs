@@ -42,6 +42,7 @@ fn to_pixi_spec_v1(
                 condition,
                 // `track_features` is a deprecated matchspec field and is not propagated.
                 track_features: _,
+                build_dependency_mode: _,
             } = source.matchspec.clone();
             let location = match source.location {
                 SourceLocationSpec::Url(url_spec) => {

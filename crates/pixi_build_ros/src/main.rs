@@ -38,6 +38,10 @@ pub struct RosGenerator {}
 impl GenerateRecipe for RosGenerator {
     type Config = RosBackendConfig;
 
+    fn shares_workspace_dependencies(&self) -> bool {
+        true
+    }
+
     #[tracing::instrument(
         name = "ros_generate_recipe",
         skip_all,
@@ -421,6 +425,11 @@ mod tests {
 
     fn jazzy_distro() -> Distro {
         Distro::new("jazzy")
+    }
+
+    #[test]
+    fn ros_outputs_share_workspace_dependencies() {
+        assert!(RosGenerator::default().shares_workspace_dependencies());
     }
 
     #[test]

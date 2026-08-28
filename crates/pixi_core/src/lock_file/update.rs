@@ -3118,6 +3118,7 @@ async fn spawn_solve_conda_environment_task(
     let records_arc = command_dispatcher
         .engine()
         .compute(&SolvePixiEnvironmentKey::new(SolvePixiEnvironmentSpec {
+            shared_workspace_dependencies: Arc::new(dependencies.clone()),
             dependencies,
             constraints,
             dev_sources,

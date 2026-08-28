@@ -1291,6 +1291,7 @@ mod tests {
                 python_site_packages_path: None,
                 variant,
             },
+            shared_workspace_dependencies: false,
             build_dependencies: None,
             host_dependencies: None,
             run_dependencies: CondaOutputDependencies {

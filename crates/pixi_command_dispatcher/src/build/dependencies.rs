@@ -209,6 +209,25 @@ impl Dependencies {
         })
     }
 
+    /// Add the consuming workspace environment's specs for dependencies that
+    /// this build/host environment directly declares. Keeping both specs lets
+    /// the solver intersect version constraints, while a workspace source spec
+    /// makes the corresponding source package win over channel candidates.
+    pub fn extend_with_shared_workspace_dependencies(
+        mut self,
+        workspace_dependencies: &DependencyMap<PackageName, PixiSpec>,
+    ) -> Self {
+        let direct_names: std::collections::HashSet<_> =
+            self.dependencies.names().cloned().collect();
+        for (name, spec) in workspace_dependencies.iter_specs() {
+            if direct_names.contains(name) {
+                self.dependencies
+                    .insert(name.clone(), WithSource::new(spec.clone()));
+            }
+        }
+        self
+    }
+
     pub fn extend_with_run_exports_from_build(
         mut self,
         build_run_exports: &[(PackageName, PixiRunExports)],
@@ -647,14 +666,18 @@ mod tests {
         procedures::conda_outputs::CondaOutputIgnoreRunExports,
     };
     use rattler_conda_types::{
-        PackageName, PackageRecord, RepoDataRecord, VersionWithSource,
+        PackageName, PackageRecord, RepoDataRecord, VersionSpec, VersionWithSource,
         package::{DistArchiveIdentifier, RunExportsJson},
     };
     use rattler_repodata_gateway::Gateway;
     use url::Url;
 
-    use super::{Dependencies, PixiRunExports, convert_extra_dependencies, filter_match_specs};
+    use super::{
+        Dependencies, PixiRunExports, WithSource, convert_extra_dependencies, filter_match_specs,
+    };
     use pixi_record::PixiRecord;
+    use pixi_spec::PixiSpec;
+    use pixi_spec_containers::DependencyMap;
 
     fn binary_record(name: &str, version: &str, run_exports: RunExportsJson) -> PixiRecord {
         let mut pr = PackageRecord::new(
@@ -674,6 +697,34 @@ mod tests {
             .unwrap(),
             channel: None,
         }))
+    }
+
+    #[test]
+    fn shared_workspace_dependencies_only_constrain_direct_dependencies() {
+        let numpy = PackageName::from_str("numpy").unwrap();
+        let scipy = PackageName::from_str("scipy").unwrap();
+        let mut package_dependencies = Dependencies::default();
+        package_dependencies
+            .dependencies
+            .insert(numpy.clone(), WithSource::new(PixiSpec::any()));
+
+        let mut workspace_dependencies = DependencyMap::default();
+        workspace_dependencies.insert(
+            numpy.clone(),
+            PixiSpec::Version("2.1.*".parse::<VersionSpec>().unwrap()),
+        );
+        workspace_dependencies.insert(scipy, PixiSpec::any());
+
+        let shared =
+            package_dependencies.extend_with_shared_workspace_dependencies(&workspace_dependencies);
+        let numpy_specs = shared.dependencies.get(&numpy).unwrap();
+        assert_eq!(numpy_specs.len(), 2);
+        assert!(
+            numpy_specs
+                .iter()
+                .any(|spec| spec.value.to_string() == "2.1.*")
+        );
+        assert_eq!(shared.dependencies.names().count(), 1);
     }
 
     /// A package that is only in the environment because another package's

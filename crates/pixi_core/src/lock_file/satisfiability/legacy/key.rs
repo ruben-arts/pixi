@@ -176,6 +176,7 @@ impl Key for LegacySourceEnvKey {
                 package: self.package.clone(),
                 source_location: SourceLocationSpec::from(self.manifest_source.clone()),
                 preferred_build_source: self.preferred_build_source.clone(),
+                shared_workspace_dependencies: Default::default(),
                 env_ref: self.env_ref.clone(),
                 inline: None,
                 installed_source_hints: self.installed_source_hints.clone(),

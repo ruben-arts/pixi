@@ -1117,6 +1117,7 @@ mod tests {
                 python_site_packages_path: None,
                 variant: BTreeMap::new(),
             },
+            shared_workspace_dependencies: false,
             build_dependencies: Some(CondaOutputDependencies {
                 depends: build_deps,
                 constraints: Vec::new(),

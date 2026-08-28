@@ -15,6 +15,17 @@ use rattler_conda_types::{
 };
 use serde_with::{serde_as, skip_serializing_none};
 
+/// Controls whether a source dependency shares the consuming workspace
+/// environment's dependency choices for its build and host environments.
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, ::serde::Serialize, ::serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BuildDependencyMode {
+    /// Reuse matching dependency choices from the consuming environment.
+    Shared,
+    /// Solve this source package's build and host environments independently.
+    Isolated,
+}
+
 /// Optional match-spec selectors carried alongside a source location.
 #[serde_as]
 #[skip_serializing_none]
@@ -51,6 +62,11 @@ pub struct MatchspecFields {
 
     /// The track features of the package.
     pub track_features: Option<Vec<String>>,
+
+    /// Whether this source package participates in shared workspace build/host
+    /// dependency resolution. This is a Pixi-only source dependency policy and
+    /// is not written into the resulting conda matchspec.
+    pub build_dependency_mode: Option<BuildDependencyMode>,
 }
 
 impl MatchspecFields {
@@ -65,6 +81,7 @@ impl MatchspecFields {
             && self.license.is_none()
             && self.condition.is_none()
             && self.track_features.is_none()
+            && self.build_dependency_mode.is_none()
     }
 
     /// Extract the matchspec subset of a [`NamelessMatchSpec`], ignoring
@@ -81,6 +98,7 @@ impl MatchspecFields {
             license: spec.license.clone(),
             condition: spec.condition.clone(),
             track_features: spec.track_features.clone(),
+            build_dependency_mode: None,
         }
     }
 

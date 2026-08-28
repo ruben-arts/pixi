@@ -234,6 +234,7 @@ impl Protocol for RattlerBuildBackend {
                         })
                         .collect::<miette::Result<_>>()?,
                 },
+                shared_workspace_dependencies: false,
                 build_dependencies: Some(CondaOutputDependencies {
                     depends: convert_dependencies(
                         recipe.requirements.build,

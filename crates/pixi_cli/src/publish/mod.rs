@@ -981,6 +981,7 @@ pub async fn execute(args: Args) -> miette::Result<()> {
                 package: name,
                 source_location: source_location.clone(),
                 preferred_build_source: Arc::new(BTreeMap::new()),
+                shared_workspace_dependencies: Default::default(),
                 env_ref: env_ref.clone(),
                 inline: None,
                 installed_source_hints: Default::default(),

@@ -27,7 +27,7 @@ pub use dev_source::DevSourceSpec;
 pub use exclude_newer::{ExcludeNewer, ResolvedExcludeNewer, to_saturating_jiff_timestamp};
 pub use git::{GitLocationSpec, GitReference, GitReferenceError, GitSpec};
 use itertools::Either;
-pub use matchspec_fields::MatchspecFields;
+pub use matchspec_fields::{BuildDependencyMode, MatchspecFields};
 pub use path::{PathBinarySpec, PathSourceSpec, PathSpec};
 pub use pin::{Pin, PinBound, PinError, PinExpression};
 use rattler_conda_types::{
@@ -181,6 +181,7 @@ impl PixiSpec {
                         license: spec.license,
                         condition: spec.condition,
                         track_features: spec.track_features,
+                        build_dependency_mode: None,
                     },
                 }))
             }
@@ -468,6 +469,17 @@ impl PixiSpec {
             PixiSpec::PathSource(path) => Ok(SourceSpec::from(*path)),
             PixiSpec::Git(git) => Ok(SourceSpec::from(*git)),
             _ => Err(self),
+        }
+    }
+
+    /// Returns the workspace build dependency policy attached to this source
+    /// dependency, if one was explicitly specified.
+    pub fn build_dependency_mode(&self) -> Option<BuildDependencyMode> {
+        match self {
+            Self::UrlSource(spec) => spec.matchspec.build_dependency_mode,
+            Self::PathSource(spec) => spec.matchspec.build_dependency_mode,
+            Self::Git(spec) => spec.matchspec.build_dependency_mode,
+            _ => None,
         }
     }
 

@@ -94,6 +94,12 @@ pub struct CondaOutput {
     /// The identifier of the output.
     pub metadata: CondaOutputMetadata,
 
+    /// Whether this backend wants the source package to participate in the
+    /// consuming environment's shared build and host solve groups. Pixi still
+    /// projects and installs only this output's own dependency closures.
+    #[serde(default)]
+    pub shared_workspace_dependencies: bool,
+
     /// The build dependencies of the package. These refer to the packages that
     /// should be installed in the "build" environment. The build environment
     /// contains packages for the current architecture that can be used to run

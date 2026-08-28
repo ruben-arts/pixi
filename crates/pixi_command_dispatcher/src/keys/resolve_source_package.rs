@@ -12,7 +12,8 @@ use pixi_build_types::procedures::conda_outputs::CondaOutput;
 use pixi_compute_engine::{ComputeCtx, Key};
 use pixi_compute_reporters::OperationId;
 use pixi_record::{PinnedSourceSpec, SourceRecord};
-use pixi_spec::SourceLocationSpec;
+use pixi_spec::{PixiSpec, SourceLocationSpec};
+use pixi_spec_containers::DependencyMap;
 use rattler_conda_types::PackageName;
 use tracing::instrument;
 
@@ -41,6 +42,7 @@ pub struct ResolveSourcePackageSpec {
     /// Unpinned; SMK pins it.
     pub source_location: SourceLocationSpec,
     pub preferred_build_source: Arc<BTreeMap<PackageName, PinnedSourceSpec>>,
+    pub shared_workspace_dependencies: Arc<DependencyMap<PackageName, PixiSpec>>,
     pub env_ref: EnvironmentRef,
     /// Inline package definition for this dependency, if it was
     /// declared with an inline `package` table in the consuming manifest.
@@ -176,6 +178,7 @@ async fn resolve_source_package_inner(
     // build/host solves see the full pins and installed hints.
     let source: PinnedSourceCodeLocation = outputs.source.clone();
     let preferred = Arc::clone(&spec.preferred_build_source);
+    let shared_workspace_dependencies = Arc::clone(&spec.shared_workspace_dependencies);
     let env_ref = spec.env_ref.clone();
     let source_hints = spec.installed_source_hints.clone();
     // Fold the inline definition's content hash into each assembled record's
@@ -188,6 +191,7 @@ async fn resolve_source_package_inner(
                 &source,
                 &output,
                 &preferred,
+                &shared_workspace_dependencies,
                 &env_ref,
                 &source_hints,
                 inline_content_hash,

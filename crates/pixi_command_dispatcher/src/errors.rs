@@ -258,6 +258,9 @@ pub enum SolvePixiEnvironmentError {
     #[error("failed to read the package cache")]
     CacheIndexError(#[source] Arc<std::io::Error>),
 
+    #[error("unsupported shared source solve: {0}")]
+    UnsupportedSharedSourceSolve(String),
+
     #[error(transparent)]
     SpecConversionError(Arc<SpecConversionError>),
 

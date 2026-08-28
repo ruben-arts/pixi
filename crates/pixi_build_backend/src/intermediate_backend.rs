@@ -525,6 +525,7 @@ where
                         })
                         .collect::<miette::Result<_>>()?,
                 },
+                shared_workspace_dependencies: self.generate_recipe.shares_workspace_dependencies(),
                 build_dependencies: Some(CondaOutputDependencies {
                     depends: convert_dependencies(
                         recipe.requirements.build,

@@ -19,17 +19,35 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 use serde_with::serde_as;
 use thiserror::Error;
 use toml_span::{
-    DeserError, ErrorKind, Value,
+    DeserError, Error as TomlError, ErrorKind, Value,
     de_helpers::{TableHelper, expected},
     value::ValueInner,
 };
 use url::Url;
 
 use crate::{
-    BinarySpec, DetailedSpec, GitLocationSpec, GitReference, GitSpec, MatchspecFields,
-    PathBinarySpec, PathSourceSpec, PathSpec, PixiSpec, SourceLocationSpec, Subdirectory,
-    SubdirectoryError, UrlBinarySpec, UrlSourceSpec, UrlSpec,
+    BinarySpec, BuildDependencyMode, DetailedSpec, GitLocationSpec, GitReference, GitSpec,
+    MatchspecFields, PathBinarySpec, PathSourceSpec, PathSpec, PixiSpec, SourceLocationSpec,
+    Subdirectory, SubdirectoryError, UrlBinarySpec, UrlSourceSpec, UrlSpec,
 };
+
+impl<'de> toml_span::Deserialize<'de> for BuildDependencyMode {
+    fn deserialize(value: &mut Value<'de>) -> Result<Self, DeserError> {
+        let mode = value.take_string(None)?;
+        match mode.as_ref() {
+            "shared" => Ok(Self::Shared),
+            "isolated" => Ok(Self::Isolated),
+            _ => Err(DeserError::from(TomlError {
+                kind: ErrorKind::UnexpectedValue {
+                    expected: &["shared", "isolated"],
+                    value: Some(mode.into_owned()),
+                },
+                span: value.span,
+                line_info: None,
+            })),
+        }
+    }
+}
 
 /// A TOML representation of a package specification.
 #[serde_as]
@@ -80,6 +98,9 @@ pub struct TomlSpec {
 
     /// The track features of the package
     pub track_features: Option<Vec<String>>,
+
+    /// Build/host dependency sharing policy for source dependencies.
+    pub build_dependency_mode: Option<BuildDependencyMode>,
 }
 
 /// A TOML representation of a package condition.
@@ -161,6 +182,7 @@ fn toml_spec_has_any_field(spec: &TomlSpec) -> bool {
         || spec.license_family.is_some()
         || spec.when.is_some()
         || spec.track_features.is_some()
+        || spec.build_dependency_mode.is_some()
 }
 
 impl<'de> serde::Deserialize<'de> for TomlWhenPackage {
@@ -473,6 +495,7 @@ impl TomlSpec {
             license_family: None,
             when: None,
             track_features: None,
+            build_dependency_mode: None,
         }
     }
 
@@ -516,6 +539,9 @@ impl TomlSpec {
             license_family: overrides.license_family.or(self.license_family),
             when: overrides.when.or(self.when),
             track_features: overrides.track_features.or(self.track_features),
+            build_dependency_mode: overrides
+                .build_dependency_mode
+                .or(self.build_dependency_mode),
         }
     }
 
@@ -683,6 +709,18 @@ impl TomlSpec {
             }
         }
 
+        if self.build_dependency_mode.is_some()
+            && matches!(
+                location_kind,
+                LocationKind::None | LocationKind::UrlBinary | LocationKind::PathBinary
+            )
+        {
+            return Err(SpecError::InvalidCombination(
+                "`build-dependency-mode`".into(),
+                "a non-source dependency".into(),
+            ));
+        }
+
         // `sha256` / `md5` only apply to URL specs (binary or source archive).
         if let Some(loc) = &self.location {
             let non_url_keys = match location_kind {
@@ -723,6 +761,7 @@ impl TomlSpec {
             license: self.license,
             condition,
             track_features: self.track_features,
+            build_dependency_mode: self.build_dependency_mode,
         };
 
         match kind {
@@ -1280,6 +1319,7 @@ impl<'de> toml_span::Deserialize<'de> for TomlSpec {
         let license_family = th.optional("license-family");
         let when = th.optional("when");
         let track_features = th.optional::<Vec<String>>("track-features");
+        let build_dependency_mode = th.optional("build-dependency-mode");
         let md5 = th
             .optional::<TomlDigest<rattler_digest::Md5>>("md5")
             .map(TomlDigest::into_inner);
@@ -1314,6 +1354,7 @@ impl<'de> toml_span::Deserialize<'de> for TomlSpec {
             license_family,
             when,
             track_features,
+            build_dependency_mode,
         })
     }
 }
@@ -1591,6 +1632,31 @@ mod test {
             .as_ref()
             .expect("expected parsed `when` condition")
             .to_string()
+    }
+
+    #[test]
+    fn source_build_dependency_mode_roundtrips() {
+        let mut value = toml_span::parse(
+            r#"path = "./source"
+build-dependency-mode = "isolated""#,
+        )
+        .expect("valid TOML");
+        let spec = <PixiSpec as toml_span::Deserialize>::deserialize(&mut value)
+            .expect("expected parse to succeed");
+        assert_eq!(
+            spec.build_dependency_mode(),
+            Some(BuildDependencyMode::Isolated)
+        );
+        assert!(spec.to_toml_value().to_string().contains("isolated"));
+    }
+
+    #[test]
+    fn binary_build_dependency_mode_is_rejected() {
+        let error = parse_toml_error(
+            r#"version = "2.1.*"
+build-dependency-mode = "isolated""#,
+        );
+        assert!(error.contains("build-dependency-mode"), "{error}");
     }
 
     fn parse_json_condition(input: Value) -> String {

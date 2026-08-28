@@ -605,6 +605,7 @@ fn create_output(
     let output_build = compute_build_string(&index_json.build, &variant, has_real_variants);
 
     CondaOutput {
+        shared_workspace_dependencies: false,
         build_dependencies: Some(extract_dependencies(
             &project_model.targets,
             |t| t.build_dependencies.as_ref(),

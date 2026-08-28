@@ -721,6 +721,7 @@ impl Project {
 
         // Create solve spec (compute-engine keys path).
         let solve_spec = SolvePixiEnvironmentSpec {
+            shared_workspace_dependencies: Arc::new(pixi_specs.clone()),
             dependencies: pixi_specs,
             constraints: DependencyMap::default(),
             dev_sources: ordermap::OrderMap::new(),

@@ -77,6 +77,7 @@ fn installed_with_hints(
 fn empty_pixi_env_spec() -> SolvePixiEnvironmentSpec {
     SolvePixiEnvironmentSpec {
         dependencies: DependencyMap::default(),
+        shared_workspace_dependencies: Default::default(),
         constraints: DependencyMap::default(),
         dev_sources: ordermap::OrderMap::new(),
         installed: std::sync::Arc::from([]),
